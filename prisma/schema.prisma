@@ -1,0 +1,349 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id         String    @id @default(uuid())
+  name       String
+  email      String
+  password   String
+  created_at DateTime? @default(now())
+  updated_at DateTime? @default(now())
+
+  @@map("users")
+}
+
+model Segmento {
+  id         String    @id @default(uuid())
+  name       String
+  created_at DateTime? @default(now())
+  updated_at DateTime? @default(now())
+
+  cursos Cursos[]
+
+  @@map("segmentos")
+}
+
+model Cursos {
+  id          String    @id @default(uuid())
+  nome_curso  String
+  price       String
+  description String
+  banner      String
+  created_at  DateTime? @default(now())
+  updated_at  DateTime? @default(now())
+
+  segmento_id String
+  segmento    Segmento @relation(fields: [segmento_id], references: [id])
+
+  detentoras Detentora[]
+  materiais  materiais[]
+
+  @@map("cursos")
+}
+
+model empresa {
+  id            String    @id @default(uuid())
+  nome_empresa  String
+  representante String
+  telefone      String
+  CNPJ          String
+  created_at    DateTime? @default(now())
+  updated_at    DateTime? @default(now())
+
+  atas Ata[]
+}
+
+model Licitacao {
+  id               String    @id @default(uuid())
+  objeto           String
+  numero_licitacao String
+  created_at       DateTime? @default(now())
+  updated_at       DateTime? @default(now())
+
+  atas Ata[]
+
+  @@map("licitacao")
+}
+
+model Ata {
+  id           String    @id @default(uuid())
+  numero_ata   String
+  licitacao_id String
+  id_empresa   String?
+  created_at   DateTime? @default(now())
+  updated_at   DateTime? @default(now())
+
+  licitacao Licitacao @relation(fields: [licitacao_id], references: [id])
+  empresa   empresa?  @relation(fields: [id_empresa], references: [id])
+
+  detentoras Detentora[]
+
+  @@map("ata")
+}
+
+model Detentora {
+  id               String  @id @default(uuid())
+  ata_id           String?
+  cursos_id        String
+  quantidade_turma Int?
+
+  ata   Ata?   @relation(fields: [ata_id], references: [id])
+  curso Cursos @relation(fields: [cursos_id], references: [id])
+
+  CronogramaCursos CronogramaCurso[]
+
+  @@map("detentora")
+}
+
+model Professor {
+  id             String    @id @default(uuid())
+  nome_professor String
+  telefone       String
+  Endereco       String
+  bairro         String
+  Numero         String
+  contato        String
+  CPF            String
+  especialidade  String
+  created_at     DateTime? @default(now())
+  updated_at     DateTime? @default(now())
+  foto           String?
+
+  CronogramaCursos CronogramaCurso[]
+
+  @@map("professor")
+}
+
+model Local {
+  id         String    @id @default(uuid())
+  polo       String
+  Telefone   String
+  Telefone2  String
+  created_at DateTime? @default(now())
+  updated_at DateTime? @default(now())
+
+  salas            Sala[]
+  CronogramaCursos CronogramaCurso[]
+
+  @@map("Local")
+}
+
+model Sala {
+  id          String @id @default(uuid())
+  numero_sala String
+  tipo_uso    String
+  local_id    String
+
+  local Local @relation(fields: [local_id], references: [id])
+
+  CronogramaCursos CronogramaCurso[]
+
+  @@map("sala")
+}
+
+model Formatura {
+  id             String @id @default(uuid())
+  data_formatura String
+  local          String
+
+  CronogramaCursos CronogramaCurso[]
+
+  @@map("formatura")
+}
+
+model BlocoCurso {
+  id          String @id @default(uuid())
+  bloco_Curso String
+
+  CronogramaCursos CronogramaCurso[]
+
+  @@map("blocoCurso")
+}
+
+model CronogramaCurso {
+  id               String  @id @default(uuid())
+  codigo           Int     @unique @default(autoincrement())
+  bloco_id         String?
+  professor_id     String?
+  local_id         String
+  sala_id          String
+  formatura_id     String
+  data_inicio      String
+  data_fim         String
+  hora_inicio      String
+  hora_fim         String
+  tema             String
+  is_status        String
+  especificacao    String
+  detentoras_id    String?
+  publicar         Boolean @default(false)
+  draft            Boolean @default(true)
+  quantidade_aluno String
+  link_inscricao   String?
+
+  // RELAÇÕES
+
+  bloco_curso BlocoCurso? @relation(fields: [bloco_id], references: [id])
+  detentoras  Detentora?  @relation(fields: [detentoras_id], references: [id])
+  professor   Professor?  @relation(fields: [professor_id], references: [id])
+  localAula   Local       @relation(fields: [local_id], references: [id])
+  salaAula    Sala        @relation(fields: [sala_id], references: [id])
+  formatura   Formatura   @relation(fields: [formatura_id], references: [id])
+
+  planejamentoAulas     planejamentoAula[]
+  matriculas            matricula[]
+  solicitacoesMateriais solicitacaoMaterial[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@map("cronogramaCursos")
+}
+
+model planejamentoAula {
+  id         String   @id @default(uuid())
+  planeja_id String
+  dia        Int
+  data_aula  DateTime
+  conteudo   String
+
+  finalizado Boolean @default(false)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  curso_programado CronogramaCurso @relation(fields: [planeja_id], references: [id])
+
+  @@map("planejamentoAulas")
+}
+
+model aluno {
+  id              String  @id @default(uuid())
+  nome            String
+  email           String?
+  celular         String
+  Telefone_recado String?
+  CPF             String  @unique
+
+  matriculas matricula[]
+
+  @@map("aluno")
+}
+
+model matricula {
+  id                    String  @id @default(uuid())
+  id_cronograma         String
+  id_aluno              String
+  confirmacao_curso     Boolean @default(false)
+  justificativa         String?
+  confirmacao_formatura Boolean @default(false)
+  aprovado              Boolean @default(false)
+
+  cronograma CronogramaCurso? @relation(fields: [id_cronograma], references: [id])
+  aluno      aluno?           @relation(fields: [id_aluno], references: [id])
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([id_cronograma])
+  @@index([id_aluno])
+  @@map("matricula")
+}
+
+enum PropriedadeMaterial {
+  PERMANENTE
+  NAO_PERMANENTE
+}
+
+model materiais {
+  id            String                @id @default(uuid())
+  id_curso      String
+  nome_material String
+  qtde          Int?
+  propriedade   PropriedadeMaterial
+  curso         Cursos                @relation(fields: [id_curso], references: [id])
+  created_at    DateTime              @default(now())
+  updated_at    DateTime              @updatedAt
+  solicitacoes  solicitacaoMaterial[]
+
+  @@index([id_curso])
+  @@map("materiais")
+}
+
+enum StatusSolicitacaoMaterial {
+  PENDENTE
+  APROVADO
+  ENTREGUE
+  CANCELADO
+}
+
+model solicitacaoMaterial {
+  id String @id @default(uuid())
+
+  id_cronograma String
+  cronograma    CronogramaCurso @relation(fields: [id_cronograma], references: [id])
+
+  id_material String
+  material    materiais @relation(fields: [id_material], references: [id])
+
+  quantidade Int
+
+  observacao String?
+
+  status StatusSolicitacaoMaterial @default(PENDENTE)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([id_cronograma])
+  @@index([id_material])
+  @@map("solicitacaoMateriais")
+}
+
+
+
+model Conversa {
+  id             String   @id @default(uuid())
+
+  cronograma_id  String?
+  aluno_id       String?
+  professor_id   String?
+
+  telefone       String
+  nome           String?
+
+  ultimaMensagem String?
+  ultimaData     DateTime?
+
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  mensagens      Mensagem[]
+}
+
+
+model Mensagem {
+  id          String    @id @default(uuid())
+
+  conversaId  String
+  conversa    Conversa  @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+
+  texto       String
+
+  enviado     Boolean
+  lida        Boolean   @default(false)
+
+  whatsappId  String?   @unique
+
+  status      String?   @default("PENDING")
+
+  created_at  DateTime  @default(now())
+
+  @@index([conversaId])
+}
