@@ -2,97 +2,149 @@ import prismaClient from "../../prisma";
 
 export class ListCronogramaService {
   async execute() {
-    const cronogramas = await prismaClient.cronogramaCurso.findMany({
-      orderBy: { codigo: "asc" },
-      include: {
-        bloco_curso: true,
-        localAula: true,
-        salaAula: true,
-
-        professor: {
-          select: {
-            id: true,
-            nome_professor: true,
-            telefone: true,
-            especialidade: true,
-            foto: true,
-          },
+    const cronogramas =
+      await prismaClient.cronogramaCurso.findMany({
+        orderBy: {
+          codigo: "asc",
         },
 
-        formatura: true,
+        include: {
+          bloco_curso: true,
 
-        detentoras: {
-          include: {
-            ata: {
-              include: {
-                empresa: true,
-              },
-            },
-            curso: {
-              include: {
-                segmento: true,
-              },
+          localAula: true,
+
+          salaAula: true,
+
+          professor: {
+            select: {
+              id: true,
+              nome_professor: true,
+              telefone: true,
+              especialidade: true,
+              foto: true,
             },
           },
-        },
 
-        _count: {
-          select: {
-            matriculas: true,
+          formatura: true,
+
+          detentoras: {
+            include: {
+              ata: {
+                include: {
+                  empresa: true,
+                },
+              },
+
+              curso: {
+                include: {
+                  segmento: true,
+                },
+              },
+            },
+          },
+
+          _count: {
+            select: {
+              matriculas: true,
+            },
           },
         },
-      },
-    });
+      });
 
-    const resultado = await Promise.all(
-      cronogramas.map(async (cronograma) => {
-        const { _count, ...dadosCronograma } = cronograma;
+    const resultado =
+      await Promise.all(
+        cronogramas.map(
+          async (cronograma) => {
+            const {
+              _count,
+              ...dadosCronograma
+            } = cronograma;
 
-        if (!cronograma.detentoras) {
-          return {
-            ...dadosCronograma,
-            quantidadeAlunos: _count.matriculas,
-            saldoDetentora: null,
-          };
-        }
+            // ==========================================
+            // SEM DETENTORA
+            // ==========================================
 
-        const contratadas =
-          cronograma.detentoras.quantidade_turma ?? 0;
+            if (!cronograma.detentoras) {
+              return {
+                ...dadosCronograma,
 
-        const utilizadas =
-  await prismaClient.cronogramaCurso.count({
-    where: {
-      detentoras_id: cronograma.detentoras.id,
-      NOT: {
-        is_status: "CANCELADO",
-      },
-    },
-  });
+                quantidadeAlunos:
+                  _count.matriculas,
 
-        return {
-          ...dadosCronograma,
+                saldoDetentora: null,
+              };
+            }
 
-          quantidadeAlunos: _count.matriculas,
+            // ==========================================
+            // QUANTIDADE CONTRATADA
+            // ==========================================
 
-          saldoDetentora: {
-            empresa:
-              cronograma.detentoras.ata?.empresa?.nome_empresa ?? "",
+            const contratado =
+              cronograma.detentoras
+                .quantidade_turma ?? 0;
 
-            ata:
-              cronograma.detentoras.ata?.numero_ata ?? "",
+            // ==========================================
+            // TURMAS UTILIZADAS
+            //
+            // CANCELADOS NÃO CONSUMEM SALDO
+            //
+            // O cronograma CANCELADO continua aparecendo
+            // no ListCronograma, mas não entra nesta conta.
+            // ==========================================
 
-            curso:
-              cronograma.detentoras.curso?.nome_curso ?? "",
+            const utilizadas =
+              await prismaClient.cronogramaCurso.count({
+                where: {
+                  detentoras_id:
+                    cronograma.detentoras.id,
 
-            contratado: contratadas,
+                  NOT: {
+                    is_status: "CANCELADO",
+                  },
+                },
+              });
 
-            utilizadas,
+            // ==========================================
+            // SALDO
+            // ==========================================
 
-            saldo: contratadas - utilizadas,
-          },
-        };
-      })
-    );
+            const saldo =
+              contratado - utilizadas;
+
+            // ==========================================
+            // RETORNO
+            // ==========================================
+
+            return {
+              ...dadosCronograma,
+
+              quantidadeAlunos:
+                _count.matriculas,
+
+              saldoDetentora: {
+                empresa:
+                  cronograma.detentoras.ata
+                    ?.empresa
+                    ?.nome_empresa ?? "",
+
+                ata:
+                  cronograma.detentoras.ata
+                    ?.numero_ata ?? "",
+
+                curso:
+                  cronograma.detentoras.curso
+                    ?.nome_curso ?? "",
+
+                contratado,
+
+                utilizadas,
+
+                saldo,
+              },
+            };
+          }
+        )
+      );
 
     return resultado;
   }
