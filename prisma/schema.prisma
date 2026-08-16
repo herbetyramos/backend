@@ -180,12 +180,13 @@ model CronogramaCurso {
   hora_fim         String
   tema             String
   is_status        String
-  especificacao    String
+  especificacao    String?
   detentoras_id    String?
   publicar         Boolean @default(false)
   draft            Boolean @default(true)
   quantidade_aluno String
   link_inscricao   String?
+  imagem_url       String?
 
   // RELAÇÕES
 
@@ -199,6 +200,7 @@ model CronogramaCurso {
   planejamentoAulas     planejamentoAula[]
   matriculas            matricula[]
   solicitacoesMateriais solicitacaoMaterial[]
+  
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
