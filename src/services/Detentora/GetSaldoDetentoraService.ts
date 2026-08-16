@@ -60,15 +60,12 @@ class GetSaldoDetentoraService {
 
         const utilizadas =
             await prismaClient.cronogramaCurso.count({
-
                 where: {
-
-                    detentoras_id: id,
-
-                    publicar: true
-
-                }
-
+                detentoras_id: id,
+                NOT: {
+                    is_status: "CANCELADO",
+                },
+                },
             });
 
 

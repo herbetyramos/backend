@@ -60,11 +60,14 @@ export class ListCronogramaService {
           cronograma.detentoras.quantidade_turma ?? 0;
 
         const utilizadas =
-          await prismaClient.cronogramaCurso.count({
-            where: {
-              detentoras_id: cronograma.detentoras.id,
-            },
-          });
+  await prismaClient.cronogramaCurso.count({
+    where: {
+      detentoras_id: cronograma.detentoras.id,
+      NOT: {
+        is_status: "CANCELADO",
+      },
+    },
+  });
 
         return {
           ...dadosCronograma,

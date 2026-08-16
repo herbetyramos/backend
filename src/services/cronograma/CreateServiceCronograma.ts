@@ -132,11 +132,14 @@ class CreateServiceCronograma {
 
       // Conta as turmas já utilizadas
       const utilizadas =
-          await prismaClient.cronogramaCurso.count({
-            where: {
-              detentoras_id,
+        await prismaClient.cronogramaCurso.count({
+          where: {
+            detentoras_id,
+            NOT: {
+              is_status: "CANCELADO",
             },
-          });
+          },
+        });
 
       const contratado =
         detentora.quantidade_turma ?? 0;
