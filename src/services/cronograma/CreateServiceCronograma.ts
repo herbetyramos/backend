@@ -4,12 +4,14 @@ interface CronogramaRequest {
   bloco_id: string | null;
   detentoras_id: string | null;
   professor_id?: string | null;
+
   local_id: string;
   sala_id: string;
   formatura_id: string;
 
   data_inicio: string;
   data_fim: string;
+
   hora_inicio: string;
   hora_fim: string;
 
@@ -21,7 +23,11 @@ interface CronogramaRequest {
   draft: boolean;
 
   quantidade_aluno: string;
-  link_inscricao: string;
+
+  link_inscricao?: string | null;
+
+  // Caminho da imagem salva em uploads
+  imagem_url?: string | null;
 }
 
 class CreateServiceCronograma {
@@ -29,22 +35,30 @@ class CreateServiceCronograma {
     bloco_id,
     detentoras_id,
     professor_id,
+
     local_id,
     sala_id,
     formatura_id,
+
     data_inicio,
     data_fim,
+
     hora_inicio,
     hora_fim,
+
     tema,
     is_status,
     especificacao,
+
     publicar,
     draft,
-    quantidade_aluno,
-    link_inscricao,
-  }: CronogramaRequest) {
 
+    quantidade_aluno,
+
+    link_inscricao,
+
+    imagem_url,
+  }: CronogramaRequest) {
     // ======================================================
     // VALIDAÇÃO DOS CAMPOS OBRIGATÓRIOS
     // ======================================================
@@ -61,12 +75,13 @@ class CreateServiceCronograma {
       is_status,
       especificacao,
       quantidade_aluno,
-      link_inscricao,
     };
 
     for (const [key, value] of Object.entries(required)) {
       if (!value || value === "") {
-        throw new Error(`Campo obrigatório ausente: ${key}`);
+        throw new Error(
+          `Campo obrigatório ausente: ${key}`
+        );
       }
     }
 
@@ -76,8 +91,13 @@ class CreateServiceCronograma {
 
     const alunosNumero = Number(quantidade_aluno);
 
-    if (isNaN(alunosNumero) || alunosNumero <= 0) {
-      throw new Error("Quantidade de alunos deve ser um número válido.");
+    if (
+      Number.isNaN(alunosNumero) ||
+      alunosNumero <= 0
+    ) {
+      throw new Error(
+        "Quantidade de alunos deve ser um número válido."
+      );
     }
 
     // ======================================================
@@ -85,44 +105,41 @@ class CreateServiceCronograma {
     // ======================================================
 
     if (detentoras_id) {
+      const detentora =
+        await prismaClient.detentora.findUnique({
+          where: {
+            id: detentoras_id,
+          },
 
-      const detentora = await prismaClient.detentora.findUnique({
+          select: {
+            id: true,
 
-        where: {
-          id: detentoras_id
-        },
+            quantidade_turma: true,
 
-        select: {
-          id: true,
-          quantidade_turma: true,
-          curso: {
-            select: {
-              nome_curso: true
-            }
-          }
-        }
-
-      });
+            curso: {
+              select: {
+                nome_curso: true,
+              },
+            },
+          },
+        });
 
       if (!detentora) {
-        throw new Error("Detentora não encontrada.");
+        throw new Error(
+          "Detentora não encontrada."
+        );
       }
 
-      const utilizadas = await prismaClient.cronogramaCurso.count({
+      // Conta as turmas já utilizadas
+      const utilizadas =
+          await prismaClient.cronogramaCurso.count({
+            where: {
+              detentoras_id,
+            },
+          });
 
-        where: {
-
-          detentoras_id,
-
-          NOT: {
-            is_status: "CANCELADO"
-          }
-
-        }
-
-      });
-
-      const contratado = detentora.quantidade_turma ?? 0;
+      const contratado =
+        detentora.quantidade_turma ?? 0;
 
       if (contratado <= 0) {
         throw new Error(
@@ -131,13 +148,10 @@ class CreateServiceCronograma {
       }
 
       if (utilizadas >= contratado) {
-
         throw new Error(
           `Saldo de turmas esgotado para o curso ${detentora.curso.nome_curso}. Contratadas: ${contratado} | Utilizadas: ${utilizadas}.`
         );
-
       }
-
     }
 
     // ======================================================
@@ -145,100 +159,121 @@ class CreateServiceCronograma {
     // ======================================================
 
     try {
+      const cronograma =
+        await prismaClient.cronogramaCurso.create({
+          data: {
+            bloco_id:
+              bloco_id || null,
 
-      const cronograma = await prismaClient.cronogramaCurso.create({
+            detentoras_id:
+              detentoras_id || null,
 
-        data: {
+            professor_id:
+              professor_id || null,
 
-          bloco_id: bloco_id || null,
+            local_id,
 
-          detentoras_id: detentoras_id || null,
+            sala_id,
 
-          professor_id: professor_id || null,
+            formatura_id,
 
-          local_id,
-          sala_id,
-          formatura_id,
+            data_inicio,
 
-          data_inicio,
-          data_fim,
+            data_fim,
 
-          hora_inicio,
-          hora_fim,
+            hora_inicio,
 
-          tema,
-          is_status,
-          especificacao,
+            hora_fim,
 
-          publicar: publicar ?? false,
+            tema,
 
-          draft: draft ?? true,
+            is_status,
 
-          quantidade_aluno,
+            especificacao,
 
-          link_inscricao,
+            publicar:
+              publicar ?? false,
 
-        },
+            draft:
+              draft ?? true,
 
-        select: {
+            quantidade_aluno,
 
-          id: true,
+            link_inscricao:
+              link_inscricao || null,
 
-          codigo: true,
+            // ==================================================
+            // IMAGEM
+            // Exemplo:
+            // /uploads/cronogramas/abc123.jpg
+            // ==================================================
 
-          bloco_id: true,
+            imagem_url:
+              imagem_url || null,
+          },
 
-          detentoras_id: true,
+          select: {
+            id: true,
 
-          professor_id: true,
+            codigo: true,
 
-          local_id: true,
+            bloco_id: true,
 
-          sala_id: true,
+            detentoras_id: true,
 
-          formatura_id: true,
+            professor_id: true,
 
-          data_inicio: true,
+            local_id: true,
 
-          data_fim: true,
+            sala_id: true,
 
-          hora_inicio: true,
+            formatura_id: true,
 
-          hora_fim: true,
+            data_inicio: true,
 
-          tema: true,
+            data_fim: true,
 
-          is_status: true,
+            hora_inicio: true,
 
-          especificacao: true,
+            hora_fim: true,
 
-          publicar: true,
+            tema: true,
 
-          draft: true,
+            is_status: true,
 
-          quantidade_aluno: true,
+            especificacao: true,
 
-          link_inscricao: true,
+            publicar: true,
 
-          created_at: true
+            draft: true,
 
-        }
+            quantidade_aluno: true,
 
-      });
+            link_inscricao: true,
+
+            imagem_url: true,
+
+            created_at: true,
+
+            updated_at: true,
+          },
+        });
 
       return cronograma;
-
     } catch (err: any) {
-
-      console.error("Erro Prisma:", err);
-
-      throw new Error(
-        "Erro ao criar cronograma: " + err.message
+      console.error(
+        "Erro Prisma ao criar cronograma:",
+        err
       );
 
+      throw new Error(
+        "Erro ao criar cronograma: " +
+          err.message
+      );
     }
-
   }
 }
 
-export { CreateServiceCronograma };
+export {
+  CreateServiceCronograma,
+};
