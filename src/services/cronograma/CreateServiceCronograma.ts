@@ -135,8 +135,8 @@ class CreateServiceCronograma {
         await prismaClient.cronogramaCurso.count({
           where: {
             detentoras_id,
-            NOT: {
-              is_status: "CANCELADO",
+            is_status: {
+              not: "CANCELADO",
             },
           },
         });

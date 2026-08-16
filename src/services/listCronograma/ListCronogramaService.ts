@@ -98,9 +98,9 @@ export class ListCronogramaService {
                   detentoras_id:
                     cronograma.detentoras.id,
 
-                  NOT: {
-                    is_status: "CANCELADO",
-                  },
+                is_status: {
+                  not: "CANCELADO",
+                    },
                 },
               });
 
