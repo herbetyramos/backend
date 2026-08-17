@@ -17,16 +17,19 @@ interface CronogramaRequest {
 
   tema: string;
   is_status: string;
-  especificacao: string;
 
-  publicar: boolean;
-  draft: boolean;
+  // Opcional
+  especificacao?: string | null;
 
-  quantidade_aluno: string;
+  publicar?: boolean;
+  draft?: boolean;
+
+  // Opcional no frontend.
+  // Será salvo como "0" caso não seja informado.
+  quantidade_aluno?: string | null;
 
   link_inscricao?: string | null;
 
-  // Caminho da imagem salva em uploads
   imagem_url?: string | null;
 }
 
@@ -72,12 +75,15 @@ class CreateServiceCronograma {
       hora_inicio,
       hora_fim,
       tema,
-      is_status,      
-      quantidade_aluno,
+      is_status,
     };
 
     for (const [key, value] of Object.entries(required)) {
-      if (!value || value === "") {
+      if (
+        value === undefined ||
+        value === null ||
+        String(value).trim() === ""
+      ) {
         throw new Error(
           `Campo obrigatório ausente: ${key}`
         );
@@ -85,19 +91,21 @@ class CreateServiceCronograma {
     }
 
     // ======================================================
-    // VALIDAÇÃO DA QUANTIDADE DE ALUNOS
+    // CAMPOS OPCIONAIS
     // ======================================================
 
-    const alunosNumero = Number(quantidade_aluno);
+    // Especificação é opcional.
+    // Se não for informada, salva como string vazia.
+    const especificacaoFinal =
+      especificacao?.trim() ?? "";
 
-    if (
-      Number.isNaN(alunosNumero) ||
-      alunosNumero <= 0
-    ) {
-      throw new Error(
-        "Quantidade de alunos deve ser um número válido."
-      );
-    }
+    // Quantidade de alunos não é mais obrigatória
+    // no formulário atual.
+    //
+    // Caso o campo seja obrigatório no banco,
+    // usamos "0" para manter compatibilidade.
+    const quantidadeAlunoFinal =
+      quantidade_aluno?.trim() || "0";
 
     // ======================================================
     // VALIDAÇÃO DO SALDO DA DETENTORA
@@ -129,11 +137,15 @@ class CreateServiceCronograma {
         );
       }
 
-      // Conta as turmas já utilizadas
+      // ====================================================
+      // CONTAR TURMAS JÁ UTILIZADAS
+      // ====================================================
+
       const utilizadas =
         await prismaClient.cronogramaCurso.count({
           where: {
             detentoras_id,
+
             is_status: {
               not: "CANCELADO",
             },
@@ -143,11 +155,19 @@ class CreateServiceCronograma {
       const contratado =
         detentora.quantidade_turma ?? 0;
 
+      // ====================================================
+      // VERIFICAR CONTRATADO
+      // ====================================================
+
       if (contratado <= 0) {
         throw new Error(
           `A detentora não possui quantidade de turmas cadastrada para o curso ${detentora.curso.nome_curso}.`
         );
       }
+
+      // ====================================================
+      // VERIFICAR SALDO
+      // ====================================================
 
       if (utilizadas >= contratado) {
         throw new Error(
@@ -164,6 +184,10 @@ class CreateServiceCronograma {
       const cronograma =
         await prismaClient.cronogramaCurso.create({
           data: {
+            // ==================================================
+            // RELACIONAMENTOS
+            // ==================================================
+
             bloco_id:
               bloco_id || null,
 
@@ -179,40 +203,68 @@ class CreateServiceCronograma {
 
             formatura_id,
 
+            // ==================================================
+            // DATAS
+            // ==================================================
+
             data_inicio,
 
             data_fim,
+
+            // ==================================================
+            // HORÁRIOS
+            // ==================================================
 
             hora_inicio,
 
             hora_fim,
 
+            // ==================================================
+            // DADOS DO CRONOGRAMA
+            // ==================================================
+
             tema,
 
             is_status,
 
-            especificacao,
+            especificacao:
+              especificacaoFinal,
+
+            // ==================================================
+            // PUBLICAÇÃO
+            // ==================================================
 
             publicar:
               publicar ?? false,
 
             draft:
-              draft ?? true,
+              draft ?? false,
 
-            quantidade_aluno,
+            // ==================================================
+            // QUANTIDADE DE ALUNOS
+            // ==================================================
+
+            quantidade_aluno:
+              quantidadeAlunoFinal,
+
+            // ==================================================
+            // LINK DE INSCRIÇÃO
+            // ==================================================
 
             link_inscricao:
-              link_inscricao || null,
+              link_inscricao?.trim() || null,
 
             // ==================================================
             // IMAGEM
-            // Exemplo:
-            // /uploads/cronogramas/abc123.jpg
             // ==================================================
 
             imagem_url:
-              imagem_url || null,
+              imagem_url?.trim() || null,
           },
+
+          // ====================================================
+          // CAMPOS RETORNADOS
+          // ====================================================
 
           select: {
             id: true,
@@ -262,15 +314,20 @@ class CreateServiceCronograma {
         });
 
       return cronograma;
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(
         "Erro Prisma ao criar cronograma:",
         err
       );
 
+      const mensagem =
+        err instanceof Error
+          ? err.message
+          : "Erro desconhecido";
+
       throw new Error(
         "Erro ao criar cronograma: " +
-          err.message
+          mensagem
       );
     }
   }
