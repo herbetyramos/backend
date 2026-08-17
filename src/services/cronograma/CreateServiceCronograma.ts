@@ -72,8 +72,7 @@ class CreateServiceCronograma {
       hora_inicio,
       hora_fim,
       tema,
-      is_status,
-      especificacao,
+      is_status,      
       quantidade_aluno,
     };
 
