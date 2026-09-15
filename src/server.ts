@@ -25,6 +25,8 @@ const app = express();
 // ===============================
 
 const allowedOrigins = [
+  "https://gestaom.com",
+  "https://www.gestaom.com",
   "http://localhost:4000",
   "http://192.168.15.84:4000",
   "http://192.168.15.84:3001",
@@ -33,18 +35,25 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (
-        !origin ||
-        allowedOrigins.includes(origin)
-      ) {
-        callback(null, true);
-      } else {
-        callback(
-          new Error(
-            `Origem não permitida pelo CORS: ${origin}`
-          )
-        );
+      // Permite requisições sem Origin
+      // (Postman, curl, chamadas internas etc.)
+      if (!origin) {
+        return callback(null, true);
       }
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      console.error(
+        `Origem não permitida pelo CORS: ${origin}`
+      );
+
+      return callback(
+        new Error(
+          `Origem não permitida pelo CORS: ${origin}`
+        )
+      );
     },
 
     credentials: true,
@@ -137,7 +146,7 @@ console.log(
 );
 
 // ===============================
-// SOCKET.IO
+// SERVIDOR HTTP + SOCKET.IO
 // ===============================
 
 const server =
@@ -158,5 +167,10 @@ server.listen(
     console.log(
       `🚀 SERVIDOR RODANDO NA PORTA ${PORT}`
     );
+
+    console.log(
+      `🔌 Socket.IO disponível na porta ${PORT}`
+    );
   }
 );
+
