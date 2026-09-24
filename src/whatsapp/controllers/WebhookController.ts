@@ -1,36 +1,196 @@
 import { Request, Response } from "express";
-import ReceberWhatsAppService from "../services/ReceberWhatsAppService";
-import { WHATSAPP } from "../config";
+
+import { whatsappClient } from "../client/WhatsAppClient";
 
 class WebhookController {
+  // ============================================================
+  // STATUS
+  // ============================================================
 
-    verify(req: Request, res: Response) {
+  async status(
+    req: Request,
+    res: Response
+  ) {
+    try {
+      const status =
+        whatsappClient.getStatus();
 
-        const mode = req.query["hub.mode"];
-        const token = req.query["hub.verify_token"];
-        const challenge = req.query["hub.challenge"];
+      return res.status(200).json({
+        sucesso: true,
+        conectado:
+          status.conectado,
+        qrCode:
+          status.qrCode,
+      });
+    } catch (error) {
+      console.error(
+        "Erro ao consultar status do WhatsApp:",
+        error
+      );
 
-        if (
-            mode === "subscribe" &&
-            token === WHATSAPP.VERIFY_TOKEN
-        ) {
-
-            return res.status(200).send(challenge);
-
-        }
-
-        return res.sendStatus(403);
-
+      return res.status(500).json({
+        sucesso: false,
+        mensagem:
+          "Erro ao consultar status do WhatsApp.",
+      });
     }
+  }
 
-    async receive(req: Request, res: Response) {
+  // ============================================================
+  // QR CODE
+  // ============================================================
 
-        await ReceberWhatsAppService.execute(req.body);
+  async qrCode(
+    req: Request,
+    res: Response
+  ) {
+    try {
+      const qrCode =
+        whatsappClient.getQRCode();
 
-        return res.sendStatus(200);
+      if (!qrCode) {
+        return res.status(404).json({
+          sucesso: false,
+          mensagem:
+            "QR Code não disponível.",
+        });
+      }
 
+      const base64 =
+        qrCode.replace(
+          /^data:image\/png;base64,/,
+          ""
+        );
+
+      const imagem =
+        Buffer.from(
+          base64,
+          "base64"
+        );
+
+      res.setHeader(
+        "Content-Type",
+        "image/png"
+      );
+
+      res.setHeader(
+        "Content-Length",
+        imagem.length
+      );
+
+      return res.send(
+        imagem
+      );
+    } catch (error) {
+      console.error(
+        "Erro ao obter QR Code:",
+        error
+      );
+
+      return res.status(500).json({
+        sucesso: false,
+        mensagem:
+          "Erro ao obter QR Code.",
+      });
     }
+  }
 
+  // ============================================================
+  // INICIAR
+  // ============================================================
+
+  async iniciar(
+    req: Request,
+    res: Response
+  ) {
+    try {
+      await whatsappClient.iniciar();
+
+      return res.status(200).json({
+        sucesso: true,
+        ...whatsappClient.getStatus(),
+      });
+    } catch (error) {
+      console.error(
+        "Erro ao iniciar WhatsApp:",
+        error
+      );
+
+      return res.status(500).json({
+        sucesso: false,
+        mensagem:
+          error instanceof Error
+            ? error.message
+            : "Erro ao iniciar WhatsApp.",
+      });
+    }
+  }
+
+  // ============================================================
+  // DESCONECTAR
+  // ============================================================
+
+  async desconectar(
+    req: Request,
+    res: Response
+  ) {
+    try {
+      await whatsappClient.desconectar();
+
+      return res.status(200).json({
+        sucesso: true,
+        conectado: false,
+        mensagem:
+          "WhatsApp desconectado com sucesso.",
+      });
+    } catch (error) {
+      console.error(
+        "Erro ao desconectar WhatsApp:",
+        error
+      );
+
+      return res.status(500).json({
+        sucesso: false,
+        mensagem:
+          error instanceof Error
+            ? error.message
+            : "Erro ao desconectar WhatsApp.",
+      });
+    }
+  }
+
+  // ============================================================
+  // TROCAR WHATSAPP
+  // ============================================================
+
+  async trocarWhatsApp(
+    req: Request,
+    res: Response
+  ) {
+    try {
+      await whatsappClient.trocarWhatsApp();
+
+      return res.status(200).json({
+        sucesso: true,
+        mensagem:
+          "Troca do WhatsApp iniciada. Aguarde o novo QR Code.",
+        ...whatsappClient.getStatus(),
+      });
+    } catch (error) {
+      console.error(
+        "Erro ao trocar WhatsApp:",
+        error
+      );
+
+      return res.status(500).json({
+        sucesso: false,
+        mensagem:
+          error instanceof Error
+            ? error.message
+            : "Erro ao trocar WhatsApp.",
+      });
+    }
+  }
 }
 
 export default new WebhookController();

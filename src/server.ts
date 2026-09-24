@@ -1,3 +1,4 @@
+
 import express, {
   Request,
   Response,
@@ -17,6 +18,7 @@ import { router } from "./routes/routes";
 import { matriculaRoutes } from "./routes/matricula";
 import { uploadRoutes } from "./routes/uploadRoutes";
 import { initSocket } from "./socket";
+import { whatsappClient } from "./whatsapp/client/WhatsAppClient";
 
 const app = express();
 
@@ -171,6 +173,18 @@ server.listen(
     console.log(
       `🔌 Socket.IO disponível na porta ${PORT}`
     );
+
+    // ===============================
+    // WHATSAPP
+    // ===============================
+
+    whatsappClient
+      .iniciar()
+      .catch((error) => {
+        console.error(
+          "❌ Erro ao iniciar WhatsApp:",
+          error
+        );
+      });
   }
 );
-

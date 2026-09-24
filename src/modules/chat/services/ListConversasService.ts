@@ -45,15 +45,16 @@ class ListConversasService {
       ],
     });
 
-        return conversas.map((conversa) => ({
+    return conversas.map((conversa) => ({
       id: conversa.id,
       telefone: conversa.telefone,
       nome: conversa.nome,
       ultimaMensagem: conversa.ultimaMensagem,
       ultimaData: conversa.ultimaData,
+      status: conversa.status,
       naoLidas: conversa._count.mensagens,
     }));
-      }
+  }
 }
 
 export { ListConversasService };

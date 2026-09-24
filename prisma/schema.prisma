@@ -200,7 +200,6 @@ model CronogramaCurso {
   planejamentoAulas     planejamentoAula[]
   matriculas            matricula[]
   solicitacoesMateriais solicitacaoMaterial[]
-  
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -308,44 +307,46 @@ model solicitacaoMaterial {
   @@map("solicitacaoMateriais")
 }
 
-
+enum StatusConversa {
+  AGUARDANDO_ATENDIMENTO
+  EM_ATENDIMENTO
+  FINALIZADO
+}
 
 model Conversa {
-  id             String   @id @default(uuid())
-
+  id             String         @id @default(uuid())
   cronograma_id  String?
   aluno_id       String?
   professor_id   String?
-
   telefone       String
   nome           String?
-
   ultimaMensagem String?
   ultimaData     DateTime?
-
-  created_at     DateTime @default(now())
-  updated_at     DateTime @updatedAt
-
+  status         StatusConversa @default(AGUARDANDO_ATENDIMENTO)
+  created_at     DateTime       @default(now())
+  updated_at     DateTime       @updatedAt
   mensagens      Mensagem[]
 }
 
-
 model Mensagem {
-  id          String    @id @default(uuid())
-
+  id          String   @id @default(uuid())
   conversaId  String
-  conversa    Conversa  @relation(fields: [conversaId], references: [id], onDelete: Cascade)
-
+  conversa    Conversa @relation(fields: [conversaId], references: [id], onDelete: Cascade)
   texto       String
-
+  tipo        String   @default("TEXTO")
+  nomeArquivo String?
+  mimeType    String?
+  tamanho     Int?
+  arquivoUrl  String?
   enviado     Boolean
-  lida        Boolean   @default(false)
+  lida        Boolean  @default(false)
+  whatsappId  String?  @unique
+  status      String?  @default("PENDING")
 
-  whatsappId  String?   @unique
+  editada Boolean @default(false)
+  apagada Boolean @default(false)
 
-  status      String?   @default("PENDING")
-
-  created_at  DateTime  @default(now())
+  created_at DateTime @default(now())
 
   @@index([conversaId])
 }
