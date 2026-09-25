@@ -45,6 +45,37 @@ export class WhatsAppClient {
   );
 
   // ============================================================
+  // NORMALIZAR TELEFONE
+  // ============================================================
+
+  private normalizarTelefone(
+    telefone: string
+  ): string {
+    const numero = telefone.replace(/\D/g, "");
+
+    if (!numero) {
+      throw new Error(
+        "Número de telefone inválido."
+      );
+    }
+
+    // Número já possui código do Brasil
+    if (numero.startsWith("55")) {
+      return numero;
+    }
+
+    // Número brasileiro sem código do país
+    if (
+      numero.length === 10 ||
+      numero.length === 11
+    ) {
+      return `55${numero}`;
+    }
+
+    // Mantém números internacionais
+    return numero;
+  }
+
   // INICIAR WHATSAPP
   // ============================================================
 
@@ -1158,16 +1189,7 @@ export class WhatsAppClient {
     }
 
     const numero =
-      telefone.replace(
-        /\D/g,
-        ""
-      );
-
-    if (!numero) {
-      throw new Error(
-        "Número de telefone inválido."
-      );
-    }
+      this.normalizarTelefone(telefone);
 
     const resultado =
       await this.sock.onWhatsApp(
@@ -1239,13 +1261,8 @@ export class WhatsAppClient {
     );
   }
 
-  const numero = telefone.replace(/\D/g, "");
-
-  if (!numero) {
-    throw new Error(
-      "Número de telefone inválido."
-    );
-  }
+  const numero =
+    this.normalizarTelefone(telefone);
 
   const resultado =
     await this.sock.onWhatsApp(numero);
@@ -1303,13 +1320,8 @@ async apagarMensagem(
     );
   }
 
-  const numero = telefone.replace(/\D/g, "");
-
-  if (!numero) {
-    throw new Error(
-      "Número de telefone inválido."
-    );
-  }
+  const numero =
+    this.normalizarTelefone(telefone);
 
   const resultado =
     await this.sock.onWhatsApp(numero);
@@ -1377,16 +1389,7 @@ async apagarMensagem(
     }
 
     const numero =
-      telefone.replace(
-        /\D/g,
-        ""
-      );
-
-    if (!numero) {
-      throw new Error(
-        "Número de telefone inválido."
-      );
-    }
+      this.normalizarTelefone(telefone);
 
     if (!mimeType) {
       throw new Error(
