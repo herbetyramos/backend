@@ -1,8 +1,11 @@
+import { createDecipheriv, createHmac } from "crypto";
+
 import makeWASocket, {
   DisconnectReason,
   downloadMediaMessage,
   useMultiFileAuthState,
   WASocket,
+  proto,
 } from "@whiskeysockets/baileys";
 
 import { Boom } from "@hapi/boom";
@@ -17,6 +20,20 @@ import ReceberWhatsAppService from "../services/ReceberWhatsAppService";
 
 export class WhatsAppClient {
   private sock: WASocket | null = null;
+
+  /**
+   * Guarda o MessageSecret das mensagens recebidas.
+   *
+   * O WhatsApp usa esse segredo para descriptografar
+   * mensagens editadas através de secretEncryptedMessage.
+   */
+  private messageSecrets = new Map<
+    string,
+    {
+      secret: Buffer;
+      senderJid: string;
+    }
+  >();
 
   private qrCode: string | null = null;
 
@@ -76,6 +93,7 @@ export class WhatsAppClient {
     return numero;
   }
 
+  // ============================================================
   // INICIAR WHATSAPP
   // ============================================================
 
@@ -316,13 +334,439 @@ export class WhatsAppClient {
         async ({ messages }) => {
           for (const message of messages) {
             try {
+              console.log(
+                "🟣 WHATSAPP messages.upsert:",
+                JSON.stringify(
+                  message,
+                  null,
+                  2
+                )
+              );
+
+              // ============================================================
+              // GUARDA O MESSAGE SECRET DA MENSAGEM ORIGINAL
+              // ============================================================
+
+              this.salvarMessageSecret(
+                message
+              );
+
+              // ============================================================
+              // SECRET ENCRYPTED MESSAGE
+              //
+              // O WhatsApp atualmente pode enviar uma edição através
+              // de secretEncryptedMessage em vez de protocolMessage.
+              // ============================================================
+
+              const secretMessage =
+                message.message
+                  ?.secretEncryptedMessage;
+
+              if (
+                secretMessage &&
+                secretMessage.secretEncType ===
+                  proto.Message.SecretEncryptedMessage.SecretEncType
+                    .MESSAGE_EDIT
+              ) {
+                console.log(
+                  "🟠 SECRET ENCRYPTED MESSAGE - MESSAGE_EDIT"
+                );
+
+                const targetKey =
+                  secretMessage.targetMessageKey;
+
+                const originalMessageId =
+                  targetKey?.id;
+
+                if (!originalMessageId) {
+                  console.log(
+                    "🟡 MESSAGE_EDIT sem ID da mensagem original."
+                  );
+
+                  continue;
+                }
+
+                console.log(
+                  "🟠 ID DA MENSAGEM ORIGINAL:",
+                  originalMessageId
+                );
+
+                // ==========================================================
+                // BUSCAR O MESSAGE SECRET
+                // ==========================================================
+
+                const cachedMessage =
+                  this.messageSecrets.get(
+                    originalMessageId
+                  );
+
+                if (!cachedMessage) {
+                  console.log(
+                    "🔴 MESSAGE_SECRET não encontrado para:",
+                    originalMessageId
+                  );
+
+                  console.log(
+                    "🔴 A edição não pode ser descriptografada."
+                  );
+
+                  continue;
+                }
+
+                const messageSecret =
+                  cachedMessage.secret;
+
+                // ==========================================================
+                // IMPORTANTE:
+                //
+                // NÃO usamos targetKey.remoteJid como remetente original.
+                //
+                // O WhatsApp pode colocar outro LID nessa estrutura.
+                //
+                // O remetente original foi guardado quando a mensagem
+                // original chegou.
+                // ==========================================================
+
+                const originalSenderJid =
+                  cachedMessage.senderJid;
+
+                // ==========================================================
+                // JID DE QUEM EDITOU
+                // ==========================================================
+
+                const editorJid =
+                  message.key?.participant ||
+                  message.key?.remoteJid;
+
+                if (
+                  !originalSenderJid ||
+                  !editorJid
+                ) {
+                  console.log(
+                    "🔴 Não foi possível determinar os JIDs da edição.",
+                    {
+                      originalSenderJid,
+                      editorJid,
+                    }
+                  );
+
+                  continue;
+                }
+
+                console.log(
+                  "🟢 JIDs da edição:",
+                  {
+                    originalMessageId,
+                    originalSenderJid,
+                    editorJid,
+                  }
+                );
+
+                // ==========================================================
+                // DESCRIPTOGRAFAR
+                // ==========================================================
+
+                let decoded: proto.Message;
+
+                try {
+                  decoded =
+                    this.descriptografarMensagemEditada(
+                      secretMessage,
+                      messageSecret,
+                      originalMessageId,
+                      originalSenderJid,
+                      editorJid
+                    );
+                } catch (error) {
+                  console.error(
+                    "🔴 ERRO AO DESCRIPTOGRAFAR MESSAGE_EDIT:",
+                    error
+                  );
+
+                  continue;
+                }
+
+                console.log(
+                  "🟢 EDIT DECRYPTED:",
+                  JSON.stringify(
+                    decoded,
+                    null,
+                    2
+                  )
+                );
+
+                // ==========================================================
+                // VERIFICAR PROTOCOL MESSAGE
+                // ==========================================================
+
+                const protocolMessage =
+                  decoded.protocolMessage;
+
+                if (
+                  !protocolMessage ||
+                  protocolMessage.type !==
+                    proto.Message.ProtocolMessage.Type
+                      .MESSAGE_EDIT
+                ) {
+                  console.log(
+                    "🔴 Payload descriptografado não contém MESSAGE_EDIT."
+                  );
+
+                  continue;
+                }
+
+                // ==========================================================
+                // PEGAR NOVO TEXTO
+                // ==========================================================
+
+                const editedMessage =
+                  protocolMessage.editedMessage;
+
+                let novoTexto = "";
+
+                if (
+                  editedMessage?.conversation
+                ) {
+                  novoTexto =
+                    editedMessage.conversation;
+                } else if (
+                  editedMessage
+                    ?.extendedTextMessage
+                    ?.text
+                ) {
+                  novoTexto =
+                    editedMessage
+                      .extendedTextMessage
+                      .text;
+                }
+
+                if (!novoTexto.trim()) {
+                  console.log(
+                    "🟡 Edição descriptografada sem texto."
+                  );
+
+                  continue;
+                }
+
+                console.log(
+                  "🟢 NOVO TEXTO:",
+                  novoTexto
+                );
+
+                // ==========================================================
+                // LOCALIZAR MENSAGEM NO BANCO
+                // ==========================================================
+
+                const mensagemOriginal =
+                  await prismaClient.mensagem.findUnique({
+                    where: {
+                      whatsappId:
+                        originalMessageId,
+                    },
+                  });
+
+                if (!mensagemOriginal) {
+                  console.log(
+                    "🔴 Mensagem original não encontrada no banco:",
+                    originalMessageId
+                  );
+
+                  continue;
+                }
+
+                // ==========================================================
+                // ATUALIZAR BANCO
+                // ==========================================================
+
+                const mensagemAtualizada =
+                  await prismaClient.mensagem.update({
+                    where: {
+                      id:
+                        mensagemOriginal.id,
+                    },
+                    data: {
+                      texto:
+                        novoTexto.trim(),
+                      editada: true,
+                    },
+                  });
+
+                console.log(
+                  "✅ MENSAGEM EDITADA NO BANCO:",
+                  mensagemAtualizada
+                );
+
+                // ==========================================================
+                // SOCKET.IO
+                // ==========================================================
+
+                const io = getIO();
+
+                io.emit(
+                  "mensagemAtualizada",
+                  mensagemAtualizada
+                );
+
+                console.log(
+                  "📡 mensagemAtualizada emitida pelo Socket.IO"
+                );
+
+                continue;
+              }
+
+              // ============================================================
+              // PROTOCOL MESSAGE NORMAL
+              // ============================================================
+
+              const protocolMessage =
+                message.message
+                  ?.protocolMessage;
+
+              if (protocolMessage) {
+                console.log(
+                  "🟠 PROTOCOL MESSAGE:",
+                  JSON.stringify(
+                    protocolMessage,
+                    null,
+                    2
+                  )
+                );
+
+                const tipo =
+                  protocolMessage.type;
+
+                const mensagemOriginalId =
+                  protocolMessage.key?.id;
+
+                if (
+                  mensagemOriginalId
+                ) {
+                  const mensagemOriginal =
+                    await prismaClient.mensagem.findUnique({
+                      where: {
+                        whatsappId:
+                          mensagemOriginalId,
+                      },
+                    });
+
+                  if (mensagemOriginal) {
+                    // ======================================================
+                    // APAGADA
+                    // ======================================================
+
+                    if (
+                      tipo ===
+                      proto.Message.ProtocolMessage.Type
+                        .REVOKE
+                    ) {
+                      const mensagemApagada =
+                        await prismaClient.mensagem.update({
+                          where: {
+                            id:
+                              mensagemOriginal.id,
+                          },
+                          data: {
+                            apagada: true,
+                            texto:
+                              "Mensagem apagada",
+                          },
+                        });
+
+                      const io = getIO();
+
+                      io.emit(
+                        "mensagemAtualizada",
+                        mensagemApagada
+                      );
+
+                      console.log(
+                        "✅ MENSAGEM APAGADA"
+                      );
+
+                      continue;
+                    }
+
+                    // ======================================================
+                    // MESSAGE_EDIT LEGACY
+                    // ======================================================
+
+                    if (
+                      tipo ===
+                      proto.Message.ProtocolMessage.Type
+                        .MESSAGE_EDIT
+                    ) {
+                      const mensagemEditada =
+                        protocolMessage.editedMessage;
+
+                      let novoTexto = "";
+
+                      if (
+                        mensagemEditada
+                          ?.conversation
+                      ) {
+                        novoTexto =
+                          mensagemEditada
+                            .conversation;
+                      } else if (
+                        mensagemEditada
+                          ?.extendedTextMessage
+                          ?.text
+                      ) {
+                        novoTexto =
+                          mensagemEditada
+                            .extendedTextMessage
+                            .text;
+                      }
+
+                      if (
+                        !novoTexto.trim()
+                      ) {
+                        continue;
+                      }
+
+                      const mensagemAtualizada =
+                        await prismaClient.mensagem.update({
+                          where: {
+                            id:
+                              mensagemOriginal.id,
+                          },
+                          data: {
+                            texto:
+                              novoTexto.trim(),
+                            editada: true,
+                          },
+                        });
+
+                      const io = getIO();
+
+                      io.emit(
+                        "mensagemAtualizada",
+                        mensagemAtualizada
+                      );
+
+                      console.log(
+                        "✅ MENSAGEM EDITADA - FORMATO LEGACY"
+                      );
+
+                      continue;
+                    }
+                  }
+                }
+
+                continue;
+              }
+
+              // ============================================================
+              // MENSAGEM NORMAL
+              // ============================================================
+
               await this.processarMensagemRecebida(
                 sock,
                 message
               );
             } catch (error) {
               console.error(
-                "Erro ao processar mensagem recebida:",
+                "❌ Erro ao processar messages.upsert:",
                 error
               );
             }
@@ -339,12 +783,204 @@ export class WhatsAppClient {
         async (updates) => {
           for (const update of updates) {
             try {
+              console.log(
+                "🟣 WHATSAPP messages.update:",
+                JSON.stringify(
+                  update,
+                  null,
+                  2
+                )
+              );
+
               const whatsappId =
                 update.key?.id;
 
               if (!whatsappId) {
+                console.log(
+                  "🟡 messages.update sem update.key.id"
+                );
+
                 continue;
               }
+
+              // ============================================================
+              // 1. VERIFICAR EDIÇÃO / EXCLUSÃO DA MENSAGEM
+              // ============================================================
+
+              const mensagemAtualizacao =
+                update.update?.message;
+
+              const protocolMessage =
+                mensagemAtualizacao
+                  ?.protocolMessage;
+
+              if (protocolMessage) {
+                console.log(
+                  "🟠 PROTOCOL MESSAGE:",
+                  JSON.stringify(
+                    protocolMessage,
+                    null,
+                    2
+                  )
+                );
+
+                const tipo =
+                  protocolMessage.type;
+
+                const mensagemOriginalId =
+                  protocolMessage.key?.id;
+
+                console.log(
+                  "🟠 TIPO PROTOCOL:",
+                  tipo
+                );
+
+                console.log(
+                  "🟠 ID MENSAGEM ORIGINAL:",
+                  mensagemOriginalId
+                );
+
+                if (mensagemOriginalId) {
+                  const mensagemOriginal =
+                    await prismaClient.mensagem.findUnique({
+                      where: {
+                        whatsappId:
+                          mensagemOriginalId,
+                      },
+                    });
+
+                  if (!mensagemOriginal) {
+                    console.log(
+                      "🟡 Mensagem original não encontrada no banco:",
+                      mensagemOriginalId
+                    );
+                  }
+
+                  if (mensagemOriginal) {
+                    // ======================================================
+                    // MENSAGEM APAGADA
+                    // ======================================================
+
+                    if (
+                      tipo ===
+                      proto.Message.ProtocolMessage.Type
+                        .REVOKE
+                    ) {
+                      console.log(
+                        "🔴 MENSAGEM APAGADA:",
+                        mensagemOriginal.id
+                      );
+
+                      const mensagemApagada =
+                        await prismaClient.mensagem.update({
+                          where: {
+                            id:
+                              mensagemOriginal.id,
+                          },
+                          data: {
+                            apagada: true,
+                            texto:
+                              "Mensagem apagada",
+                          },
+                        });
+
+                      const io = getIO();
+
+                      io.emit(
+                        "mensagemAtualizada",
+                        mensagemApagada
+                      );
+
+                      console.log(
+                        "✅ MENSAGEM APAGADA ATUALIZADA NO BANCO E EMITIDA NO SOCKET"
+                      );
+
+                      continue;
+                    }
+
+                    // ======================================================
+                    // MENSAGEM EDITADA
+                    // ======================================================
+
+                    if (
+                      tipo ===
+                      proto.Message.ProtocolMessage.Type
+                        .MESSAGE_EDIT
+                    ) {
+                      console.log(
+                        "🟢 MENSAGEM EDITADA:",
+                        mensagemOriginal.id
+                      );
+
+                      const mensagemEditada =
+                        protocolMessage.editedMessage;
+
+                      let novoTexto = "";
+
+                      if (
+                        mensagemEditada?.conversation
+                      ) {
+                        novoTexto =
+                          mensagemEditada.conversation;
+                      } else if (
+                        mensagemEditada
+                          ?.extendedTextMessage
+                          ?.text
+                      ) {
+                        novoTexto =
+                          mensagemEditada
+                            .extendedTextMessage
+                            .text;
+                      }
+
+                      console.log(
+                        "🟢 NOVO TEXTO:",
+                        novoTexto
+                      );
+
+                      if (
+                        !novoTexto.trim()
+                      ) {
+                        console.log(
+                          "🟡 Não foi possível encontrar o novo texto da mensagem editada."
+                        );
+
+                        continue;
+                      }
+
+                      const mensagemAtualizada =
+                        await prismaClient.mensagem.update({
+                          where: {
+                            id:
+                              mensagemOriginal.id,
+                          },
+                          data: {
+                            texto:
+                              novoTexto.trim(),
+                            editada: true,
+                          },
+                        });
+
+                      const io = getIO();
+
+                      io.emit(
+                        "mensagemAtualizada",
+                        mensagemAtualizada
+                      );
+
+                      console.log(
+                        "✅ MENSAGEM EDITADA ATUALIZADA NO BANCO E EMITIDA NO SOCKET"
+                      );
+
+                      continue;
+                    }
+                  }
+                }
+              }
+
+              // ============================================================
+              // 2. STATUS NORMAL DA MENSAGEM
+              // ============================================================
 
               const status =
                 update.update?.status;
@@ -366,16 +1002,19 @@ export class WhatsAppClient {
                 | boolean
                 | undefined;
 
+              // SENT
               if (statusNumero === 2) {
                 novoStatus = "SENT";
                 lida = false;
               }
 
+              // DELIVERED
               if (statusNumero === 3) {
                 novoStatus = "DELIVERED";
                 lida = false;
               }
 
+              // READ
               if (statusNumero === 4) {
                 novoStatus = "READ";
                 lida = true;
@@ -386,25 +1025,17 @@ export class WhatsAppClient {
               }
 
               const mensagem =
-                await prismaClient.mensagem.findUnique(
-                  {
-                    where: {
-                      whatsappId,
-                    },
-                  }
-                );
+                await prismaClient.mensagem.findUnique({
+                  where: {
+                    whatsappId,
+                  },
+                });
 
               if (!mensagem) {
-                console.log(
-                  "Mensagem não encontrada pelo whatsappId:",
-                  whatsappId
-                );
-
                 continue;
               }
 
-              const ordemStatus:
-                Record<string, number> = {
+              const ordemStatus = {
                 FAILED: 0,
                 PENDING: 1,
                 SENT: 2,
@@ -416,47 +1047,29 @@ export class WhatsAppClient {
                 mensagem.status ??
                 "PENDING";
 
-              const nivelAtual =
-                ordemStatus[
-                  statusAtual
-                ] ?? 0;
-
-              const novoNivel =
-                ordemStatus[
-                  novoStatus
-                ] ?? 0;
-
               if (
-                novoNivel <=
-                nivelAtual
+                (ordemStatus[novoStatus] ?? 0) <=
+                (ordemStatus[statusAtual] ?? 0)
               ) {
                 continue;
               }
 
               const mensagemAtualizada =
-                await prismaClient.mensagem.update(
-                  {
-                    where: {
-                      id: mensagem.id,
-                    },
-
-                    data: {
-                      status:
-                        novoStatus,
-
-                      ...(lida !==
-                      undefined
-                        ? { lida }
-                        : {}),
-                    },
-                  }
-                );
+                await prismaClient.mensagem.update({
+                  where: {
+                    id: mensagem.id,
+                  },
+                  data: {
+                    status: novoStatus,
+                    ...(lida !== undefined
+                      ? { lida }
+                      : {}),
+                  },
+                });
 
               const io = getIO();
 
-              io.to(
-                mensagemAtualizada.conversaId
-              ).emit(
+              io.emit(
                 "mensagemAtualizada",
                 mensagemAtualizada
               );
@@ -474,39 +1087,13 @@ export class WhatsAppClient {
               );
 
               console.log(
-                "========================================"
-              );
-
-              console.log(
-                "STATUS DA MENSAGEM ATUALIZADO"
-              );
-
-              console.log(
-                "WhatsApp ID:",
-                whatsappId
-              );
-
-              console.log(
-                "Conversa:",
-                mensagemAtualizada.conversaId
-              );
-
-              console.log(
-                "Status:",
+                "📊 STATUS DA MENSAGEM ATUALIZADO:",
+                mensagemAtualizada.id,
                 novoStatus
-              );
-
-              console.log(
-                "Lida:",
-                mensagemAtualizada.lida
-              );
-
-              console.log(
-                "========================================"
               );
             } catch (error) {
               console.error(
-                "Erro ao atualizar status da mensagem:",
+                "❌ Erro ao processar messages.update:",
                 error
               );
             }
@@ -538,6 +1125,232 @@ export class WhatsAppClient {
         delay
       );
     }
+  }
+
+  // ============================================================
+  // SALVAR MESSAGE SECRET
+  // ============================================================
+
+  private salvarMessageSecret(
+    message: any
+  ) {
+    const whatsappId =
+      message?.key?.id;
+
+    if (!whatsappId) {
+      return;
+    }
+
+    const messageSecret =
+      message?.message
+        ?.messageContextInfo
+        ?.messageSecret;
+
+    if (!messageSecret) {
+      return;
+    }
+
+    const senderJid =
+      message?.key?.participant ||
+      message?.key?.remoteJid;
+
+    if (!senderJid) {
+      console.log(
+        "⚠️ Não foi possível identificar o remetente da mensagem para armazenar o MessageSecret."
+      );
+
+      return;
+    }
+
+    const secret =
+      Buffer.isBuffer(messageSecret)
+        ? messageSecret
+        : Buffer.from(messageSecret);
+
+    this.messageSecrets.set(
+      whatsappId,
+      {
+        secret,
+        senderJid,
+      }
+    );
+
+    console.log(
+      "🔐 MessageSecret armazenado:",
+      {
+        whatsappId,
+        senderJid,
+      }
+    );
+
+    /**
+     * Mantém o segredo em memória por 15 minutos.
+     *
+     * Isso evita manter segredos indefinidamente,
+     * mas permite que uma edição feita logo depois
+     * da mensagem original seja descriptografada.
+     */
+    setTimeout(
+      () => {
+        this.messageSecrets.delete(
+          whatsappId
+        );
+      },
+      15 * 60 * 1000
+    );
+  }
+
+  // ============================================================
+  // DESCRIPTOGRAFAR MENSAGEM EDITADA
+  // ============================================================
+
+  private descriptografarMensagemEditada(
+    secretMessage: any,
+    messageSecret: Buffer,
+    originalMessageId: string,
+    originalSenderJid: string,
+    editorJid: string
+  ): proto.Message {
+    /**
+     * Algoritmo utilizado pelo WhatsApp para
+     * secretEncryptedMessage / MESSAGE_EDIT.
+     *
+     * info:
+     *
+     * messageId
+     * +
+     * remetente original
+     * +
+     * editor
+     * +
+     * "Message Edit"
+     * +
+     * 0x01
+     */
+
+    const sign =
+      Buffer.concat([
+        Buffer.from(
+          originalMessageId
+        ),
+
+        Buffer.from(
+          originalSenderJid
+        ),
+
+        Buffer.from(
+          editorJid
+        ),
+
+        Buffer.from(
+          "Message Edit"
+        ),
+
+        Buffer.from([1]),
+      ]);
+
+    // ==========================================================
+    // PRIMEIRA DERIVAÇÃO DA CHAVE
+    // ==========================================================
+
+    const key0 =
+      createHmac(
+        "sha256",
+        Buffer.alloc(32)
+      )
+        .update(
+          messageSecret
+        )
+        .digest();
+
+    // ==========================================================
+    // CHAVE FINAL AES-256-GCM
+    // ==========================================================
+
+    const encryptionKey =
+      createHmac(
+        "sha256",
+        key0
+      )
+        .update(sign)
+        .digest();
+
+    // ==========================================================
+    // IV
+    // ==========================================================
+
+    const iv =
+      Buffer.from(
+        secretMessage.encIv
+      );
+
+    // ==========================================================
+    // PAYLOAD
+    // ==========================================================
+
+    const payload =
+      Buffer.from(
+        secretMessage.encPayload
+      );
+
+    if (
+      payload.length <= 16
+    ) {
+      throw new Error(
+        "Payload criptografado inválido ou muito pequeno."
+      );
+    }
+
+    // Os últimos 16 bytes são o Authentication Tag
+    const ciphertext =
+      payload.subarray(
+        0,
+        payload.length - 16
+      );
+
+    const authTag =
+      payload.subarray(
+        payload.length - 16
+      );
+
+    // ==========================================================
+    // AES-256-GCM
+    // ==========================================================
+
+    const decipher =
+      createDecipheriv(
+        "aes-256-gcm",
+        encryptionKey,
+        iv
+      );
+
+    /**
+     * O WhatsApp utiliza AAD vazio nessa operação.
+     */
+    decipher.setAAD(
+      Buffer.alloc(0)
+    );
+
+    decipher.setAuthTag(
+      authTag
+    );
+
+    const decrypted =
+      Buffer.concat([
+        decipher.update(
+          ciphertext
+        ),
+
+        decipher.final(),
+      ]);
+
+    // ==========================================================
+    // DECODIFICAR PROTOBUF
+    // ==========================================================
+
+    return proto.Message.decode(
+      decrypted
+    );
   }
 
   // ============================================================
@@ -641,7 +1454,10 @@ export class WhatsAppClient {
     }
 
     const telefoneLimpo =
-      telefone.replace(/\D/g, "");
+      telefone.replace(
+        /\D/g,
+        ""
+      );
 
     if (!telefoneLimpo) {
       console.warn(
@@ -737,22 +1553,24 @@ export class WhatsAppClient {
     // ========================================================
 
     const arquivo =
-  await this.baixarMidia(
-    sock,
-    message,
-    {
-      tipo: conteudo.tipo as
-        | "IMAGEM"
-        | "DOCUMENTO"
-        | "AUDIO"
-        | "VIDEO",
+      await this.baixarMidia(
+        sock,
+        message,
+        {
+          tipo:
+            conteudo.tipo as
+              | "IMAGEM"
+              | "DOCUMENTO"
+              | "AUDIO"
+              | "VIDEO",
 
-      texto: conteudo.texto,
+          texto:
+            conteudo.texto,
 
-      mediaMessage:
-        conteudo.mediaMessage,
-    }
-  );
+          mediaMessage:
+            conteudo.mediaMessage,
+        }
+      );
 
     if (!arquivo) {
       console.warn(
@@ -847,7 +1665,10 @@ export class WhatsAppClient {
           | "VIDEO";
 
         texto: string;
-        mediaMessage: any | null;
+
+        mediaMessage:
+          | any
+          | null;
       }
     | null {
     if (
@@ -1083,7 +1904,9 @@ export class WhatsAppClient {
       | "DOCUMENTO"
       | "AUDIO"
       | "VIDEO",
+
     mimeType: string,
+
     nomeOriginal:
       | string
       | null
@@ -1189,7 +2012,9 @@ export class WhatsAppClient {
     }
 
     const numero =
-      this.normalizarTelefone(telefone);
+      this.normalizarTelefone(
+        telefone
+      );
 
     const resultado =
       await this.sock.onWhatsApp(
@@ -1230,133 +2055,159 @@ export class WhatsAppClient {
     return response;
   }
 
+  // ============================================================
+  // EDITAR MENSAGEM
+  // ============================================================
+
   async editarMensagem(
-  telefone: string,
-  whatsappId: string,
-  novoTexto: string
-) {
-  if (!this.sock) {
-    throw new Error(
-      "WhatsApp não está inicializado."
-    );
-  }
-
-  if (!this.conectado) {
-    throw new Error(
-      "WhatsApp não está conectado."
-    );
-  }
-
-  const texto = novoTexto.trim();
-
-  if (!texto) {
-    throw new Error(
-      "O novo texto da mensagem não pode ser vazio."
-    );
-  }
-
-  if (!whatsappId) {
-    throw new Error(
-      "ID da mensagem do WhatsApp não informado."
-    );
-  }
-
-  const numero =
-    this.normalizarTelefone(telefone);
-
-  const resultado =
-    await this.sock.onWhatsApp(numero);
-
-  if (
-    !resultado ||
-    resultado.length === 0 ||
-    !resultado[0].exists
+    telefone: string,
+    whatsappId: string,
+    novoTexto: string
   ) {
-    throw new Error(
-      `O número ${numero} não possui uma conta WhatsApp.`
-    );
+    if (!this.sock) {
+      throw new Error(
+        "WhatsApp não está inicializado."
+      );
+    }
+
+    if (!this.conectado) {
+      throw new Error(
+        "WhatsApp não está conectado."
+      );
+    }
+
+    const texto =
+      novoTexto.trim();
+
+    if (!texto) {
+      throw new Error(
+        "O novo texto da mensagem não pode ser vazio."
+      );
+    }
+
+    if (!whatsappId) {
+      throw new Error(
+        "ID da mensagem do WhatsApp não informado."
+      );
+    }
+
+    const numero =
+      this.normalizarTelefone(
+        telefone
+      );
+
+    const resultado =
+      await this.sock.onWhatsApp(
+        numero
+      );
+
+    if (
+      !resultado ||
+      resultado.length === 0 ||
+      !resultado[0].exists
+    ) {
+      throw new Error(
+        `O número ${numero} não possui uma conta WhatsApp.`
+      );
+    }
+
+    const jid =
+      resultado[0].jid;
+
+    if (!jid) {
+      throw new Error(
+        "Não foi possível identificar o JID do WhatsApp."
+      );
+    }
+
+    const resposta =
+      await this.sock.sendMessage(
+        jid,
+        {
+          text: texto,
+
+          edit: {
+            remoteJid: jid,
+            fromMe: true,
+            id: whatsappId,
+          },
+        }
+      );
+
+    return resposta;
   }
 
-  const jid = resultado[0].jid;
+  // ============================================================
+  // APAGAR MENSAGEM
+  // ============================================================
 
-  if (!jid) {
-    throw new Error(
-      "Não foi possível identificar o JID do WhatsApp."
-    );
-  }
-
-  const resposta =
-    await this.sock.sendMessage(jid, {
-      text: texto,
-      edit: {
-        remoteJid: jid,
-        fromMe: true,
-        id: whatsappId,
-      },
-    });
-
-  return resposta;
-}
-
-async apagarMensagem(
-  telefone: string,
-  whatsappId: string
-) {
-  if (!this.sock) {
-    throw new Error(
-      "WhatsApp não está inicializado."
-    );
-  }
-
-  if (!this.conectado) {
-    throw new Error(
-      "WhatsApp não está conectado."
-    );
-  }
-
-  if (!whatsappId) {
-    throw new Error(
-      "ID da mensagem do WhatsApp não informado."
-    );
-  }
-
-  const numero =
-    this.normalizarTelefone(telefone);
-
-  const resultado =
-    await this.sock.onWhatsApp(numero);
-
-  if (
-    !resultado ||
-    resultado.length === 0 ||
-    !resultado[0].exists
+  async apagarMensagem(
+    telefone: string,
+    whatsappId: string
   ) {
-    throw new Error(
-      `O número ${numero} não possui uma conta WhatsApp.`
-    );
+    if (!this.sock) {
+      throw new Error(
+        "WhatsApp não está inicializado."
+      );
+    }
+
+    if (!this.conectado) {
+      throw new Error(
+        "WhatsApp não está conectado."
+      );
+    }
+
+    if (!whatsappId) {
+      throw new Error(
+        "ID da mensagem do WhatsApp não informado."
+      );
+    }
+
+    const numero =
+      this.normalizarTelefone(
+        telefone
+      );
+
+    const resultado =
+      await this.sock.onWhatsApp(
+        numero
+      );
+
+    if (
+      !resultado ||
+      resultado.length === 0 ||
+      !resultado[0].exists
+    ) {
+      throw new Error(
+        `O número ${numero} não possui uma conta WhatsApp.`
+      );
+    }
+
+    const jid =
+      resultado[0].jid;
+
+    if (!jid) {
+      throw new Error(
+        "Não foi possível identificar o JID do WhatsApp."
+      );
+    }
+
+    const resposta =
+      await this.sock.sendMessage(
+        jid,
+        {
+          delete: {
+            remoteJid: jid,
+            fromMe: true,
+            id: whatsappId,
+          },
+        }
+      );
+
+    return resposta;
   }
 
-  const jid = resultado[0].jid;
-
-  if (!jid) {
-    throw new Error(
-      "Não foi possível identificar o JID do WhatsApp."
-    );
-  }
-
-  const resposta =
-    await this.sock.sendMessage(jid, {
-      delete: {
-        remoteJid: jid,
-        fromMe: true,
-        id: whatsappId,
-      },
-    });
-
-  return resposta;
-}
-
-    // ============================================================
+  // ============================================================
   // ENVIO DE ARQUIVO
   // ============================================================
 
@@ -1389,7 +2240,9 @@ async apagarMensagem(
     }
 
     const numero =
-      this.normalizarTelefone(telefone);
+      this.normalizarTelefone(
+        telefone
+      );
 
     if (!mimeType) {
       throw new Error(
@@ -1403,11 +2256,6 @@ async apagarMensagem(
       );
     }
 
-    /**
-     * Confirma se o número possui WhatsApp.
-     * Mantemos a mesma lógica usada no envio
-     * de texto.
-     */
     const resultado =
       await this.sock.onWhatsApp(
         numero
@@ -1470,11 +2318,10 @@ async apagarMensagem(
       "========================================"
     );
 
-    /**
-     * ========================================================
-     * IMAGEM
-     * ========================================================
-     */
+    // ==========================================================
+    // IMAGEM
+    // ==========================================================
+
     if (
       mime.startsWith(
         "image/"
@@ -1494,11 +2341,10 @@ async apagarMensagem(
       );
     }
 
-    /**
-     * ========================================================
-     * VÍDEO
-     * ========================================================
-     */
+    // ==========================================================
+    // VÍDEO
+    // ==========================================================
+
     if (
       mime.startsWith(
         "video/"
@@ -1518,11 +2364,10 @@ async apagarMensagem(
       );
     }
 
-    /**
-     * ========================================================
-     * ÁUDIO
-     * ========================================================
-     */
+    // ==========================================================
+    // ÁUDIO
+    // ==========================================================
+
     if (
       mime.startsWith(
         "audio/"
@@ -1540,11 +2385,10 @@ async apagarMensagem(
       );
     }
 
-    /**
-     * ========================================================
-     * DOCUMENTO
-     * ========================================================
-     */
+    // ==========================================================
+    // DOCUMENTO
+    // ==========================================================
+
     return await this.sock.sendMessage(
       jid,
       {
@@ -1560,7 +2404,6 @@ async apagarMensagem(
       }
     );
   }
-
 
   // ============================================================
   // RECONEXÃO
@@ -1667,7 +2510,7 @@ async apagarMensagem(
     };
   }
 
-    // ============================================================
+  // ============================================================
   // DESCONECTAR
   // ============================================================
 
@@ -1726,23 +2569,23 @@ async apagarMensagem(
       "========================================"
     );
 
-    /**
-     * Cancela qualquer reconexão automática
-     * que esteja aguardando.
-     */
+    // ==========================================================
+    // CANCELAR RECONEXÃO
+    // ==========================================================
+
     this.cancelarReconexao();
 
-    /**
-     * Guarda o socket atual antes de
-     * limpar o estado.
-     */
+    // ==========================================================
+    // GUARDAR SOCKET ATUAL
+    // ==========================================================
+
     const sockAtual =
       this.sock;
 
-    /**
-     * Impede que eventos da conexão antiga
-     * continuem sendo considerados.
-     */
+    // ==========================================================
+    // IMPEDIR EVENTOS DA CONEXÃO ANTIGA
+    // ==========================================================
+
     this.sock = null;
 
     this.conectado = false;
@@ -1769,11 +2612,6 @@ async apagarMensagem(
           "WhatsApp atual desconectado."
         );
       } catch (error) {
-        /**
-         * Mesmo que o logout apresente erro,
-         * continuamos porque precisamos remover
-         * as credenciais antigas.
-         */
         console.error(
           "Erro ao fazer logout do WhatsApp atual:",
           error
@@ -1782,7 +2620,7 @@ async apagarMensagem(
     }
 
     // ==========================================================
-    // REMOVER CREDENCIAIS DA SESSÃO ANTIGA
+    // REMOVER CREDENCIAIS
     // ==========================================================
 
     try {
@@ -1816,11 +2654,6 @@ async apagarMensagem(
     // PEQUENA PAUSA
     // ==========================================================
 
-    /**
-     * Dá um pequeno intervalo para garantir
-     * que o socket antigo terminou antes de
-     * criar a nova sessão.
-     */
     await new Promise<void>(
       (resolve) => {
         setTimeout(
@@ -1860,5 +2693,3 @@ async apagarMensagem(
 
 export const whatsappClient =
   new WhatsAppClient();
-
-
