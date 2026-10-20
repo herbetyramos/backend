@@ -83,7 +83,11 @@ import { planejamentoRoutes } from "../routes/planejamentoRoutes";
 
 import { solicitacaoMaterialRoutes } from "../modules/solicitacaoMaterial/solicitacaoMaterialRoutes";
 
+import { FindProfessorController } from "../controllers/professor/FindProfessorController";
+import { UpdateProfessorController } from "../controllers/professor/UpdateProfessorController";
+import { DeleteProfessorController } from "../controllers/professor/DeleteProfessorController";
 import { certificadoRoutes } from "../modules/certificado/routes";
+
 import { chatRoutes } from "../modules/chat/routes";
 
 import whatsappRoutes from "../whatsapp/routes";
@@ -511,6 +515,40 @@ router.put(
 router.delete(
   "/material/:id",
   new DeleteMaterialController().handle
+);
+
+// PROFESSORES
+
+router.post(
+  "/professor",
+  IsAuthenticated,
+  uploadProfessor.single("file"),
+  new CreateProfessorController().handle
+);
+
+router.get(
+  "/professor",
+  IsAuthenticated,
+  new ListProfessorController().handle
+);
+
+router.get(
+  "/professor/:id",
+  IsAuthenticated,
+  new FindProfessorController().handle
+);
+
+router.put(
+  "/professor/:id",
+  IsAuthenticated,
+  uploadProfessor.single("file"),
+  new UpdateProfessorController().handle
+);
+
+router.delete(
+  "/professor/:id",
+  IsAuthenticated,
+  new DeleteProfessorController().handle
 );
 
 
