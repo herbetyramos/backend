@@ -6,9 +6,7 @@ export class UpdateCronogramaController {
     const { id } = req.params;
 
     const cronograma = await prismaClient.cronogramaCurso.update({
-      where: {
-        id,
-      },
+      where: { id },
       data: {
         ...req.body,
       },

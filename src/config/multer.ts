@@ -9,11 +9,8 @@ const uploadDir = path.resolve(
   "cronogramas"
 );
 
-// Cria a pasta automaticamente
 if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, {
-    recursive: true,
-  });
+  fs.mkdirSync(uploadDir, { recursive: true });
 }
 
 const storage = multer.diskStorage({
@@ -28,14 +25,14 @@ const storage = multer.diskStorage({
       .basename(file.originalname, extensao)
       .replace(/[^a-zA-Z0-9-_]/g, "-");
 
-    const nomeArquivo =
-      `${Date.now()}-${nomeOriginal}${extensao}`;
-
-    cb(null, nomeArquivo);
+    cb(
+      null,
+      `${Date.now()}-${nomeOriginal}${extensao.toLowerCase()}`
+    );
   },
 });
 
-const fileFilter: multer.Options["fileFilter"] = (
+const imageFileFilter: multer.Options["fileFilter"] = (
   _req,
   file,
   cb
@@ -62,12 +59,41 @@ const fileFilter: multer.Options["fileFilter"] = (
   cb(null, true);
 };
 
+const pdfFileFilter: multer.Options["fileFilter"] = (
+  _req,
+  file,
+  cb
+) => {
+  const extensao = path
+    .extname(file.originalname)
+    .toLowerCase();
+
+  if (
+    extensao !== ".pdf" ||
+    file.mimetype !== "application/pdf"
+  ) {
+    return cb(
+      new Error("Arquivo inválido. Selecione um documento PDF.")
+    );
+  }
+
+  cb(null, true);
+};
+
+// Upload de fotos: mantém o limite original de 5 MB.
 export const uploadCronograma = multer({
   storage,
-
-  fileFilter,
-
+  fileFilter: imageFileFilter,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5 MB
+    fileSize: 5 * 1024 * 1024,
+  },
+});
+
+// Upload da lista de presença: limite de 10 MB.
+export const uploadListaPresenca = multer({
+  storage,
+  fileFilter: pdfFileFilter,
+  limits: {
+    fileSize: 10 * 1024 * 1024,
   },
 });

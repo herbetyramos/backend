@@ -187,6 +187,7 @@ model CronogramaCurso {
   quantidade_aluno String
   link_inscricao   String?
   imagem_url       String?
+  lista_presenca_url String?
 
   // RELAÇÕES
 
