@@ -1,16 +1,29 @@
+
 import { Request, Response } from "express";
-import {CreateServiceDetentora} from  '../../services/Detentora/CreateServiceDetentora'
+import { CreateServiceDetentora } from "../../services/Detentora/CreateServiceDetentora";
 
-class CreateDetentoraController{
-  async handle(req:Request, res:Response){
-const {ata_id, cursos_id, quantidade_turma} = req.body
+class CreateDetentoraController {
+  async handle(req: Request, res: Response) {
+    const {
+      ata_id,
+      cursos_id,
+      quantidade_turma,
+      valor_curso = 0,
+      ativo = true,
+    } = req.body;
 
-const createDetentoraController = new CreateServiceDetentora();  
-    
-const detentora = await createDetentoraController.execute({
-      ata_id, cursos_id, quantidade_turma, });
-      return res.json(detentora);      
+    const createDetentoraService = new CreateServiceDetentora();
+
+    const detentora = await createDetentoraService.execute({
+      ata_id,
+      cursos_id,
+      quantidade_turma,
+      valor_curso,
+      ativo,
+    });
+
+    return res.json(detentora);
   }
 }
 
-export {CreateDetentoraController}
+export { CreateDetentoraController };

@@ -40,7 +40,7 @@ import { ListDetentoraController } from "../controllers/detentora/ListDetentoraC
 
 import { GetSaldoDetentoraController } from "../controllers/detentora/GetSaldoDetentoraController";
 import { GetRelatorioSaldoDetentoraController } from "../controllers/detentora/GetRelatorioSaldoDetentoraController";
-
+import { UpdateDetentoraController } from "../controllers/detentora/UpdateDetentoraController";
 import { CreateSalaController } from "../controllers/sala/CreateSalaController";
 import { ListSalaController } from "../controllers/sala/ListSalaController";
 
@@ -302,7 +302,11 @@ router.post(
   new CreateDetentoraController().handle
 );
 
-
+router.put(
+  "/detentora/:id",
+  IsAuthenticated,
+  new UpdateDetentoraController().handle
+);
 
 
 router.get(
@@ -310,6 +314,8 @@ router.get(
   IsAuthenticated,
   new ListDetentoraController().handle
 );
+
+
 
 
 // Relatório antigo de detentora

@@ -1,3 +1,4 @@
+
 import prismaClient from "../../prisma";
 
 class ListServiceDetentora {
@@ -8,13 +9,18 @@ class ListServiceDetentora {
           select: {
             id: true,
             nome_curso: true,
-            banner:true,
+            banner: true,
           },
         },
         ata: {
           select: {
             id: true,
             numero_ata: true,
+            empresa: {
+              select: {
+                nome_empresa: true,
+              },
+            },
           },
         },
       },
