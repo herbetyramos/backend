@@ -88,10 +88,12 @@ model Ata {
 }
 
 model Detentora {
-  id               String  @id @default(uuid())
+  id               String   @id @default(uuid())
   ata_id           String?
   cursos_id        String
   quantidade_turma Int?
+  valor_curso      Decimal  @default(0) @db.Decimal(10, 2)
+  ativo            Boolean  @default(true)
 
   ata   Ata?   @relation(fields: [ata_id], references: [id])
   curso Cursos @relation(fields: [cursos_id], references: [id])
