@@ -48,7 +48,7 @@ class GetRelatorioSaldoDetentoraService {
             not: null,
           },
           is_status: {
-            not: "CANCELADO",
+            notIn: ["CANCELADO", "cancelado", "Cancelado"],
           },
         },
 
