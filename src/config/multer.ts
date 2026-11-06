@@ -85,7 +85,7 @@ export const uploadCronograma = multer({
   storage,
   fileFilter: imageFileFilter,
   limits: {
-    fileSize: 5 * 1024 * 1024,
+    fileSize: 15 * 1024 * 1024,
   },
 });
 
@@ -94,6 +94,6 @@ export const uploadListaPresenca = multer({
   storage,
   fileFilter: pdfFileFilter,
   limits: {
-    fileSize: 10 * 1024 * 1024,
+    fileSize: 20 * 1024 * 1024,
   },
 });
