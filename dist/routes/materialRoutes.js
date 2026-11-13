@@ -1,0 +1,14 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.materialRoutes = void 0;
+const express_1 = require("express");
+const CreateMaterialController_1 = require("../controllers/materiais/modules/CreateMaterialController");
+const ListMaterialController_1 = require("../controllers/materiais/ListMaterialController");
+const UpdateMaterialController_1 = require("../controllers/materiais/modules/UpdateMaterialController");
+const DeleteMaterialController_1 = require("../controllers/materiais/modules/DeleteMaterialController");
+const materialRoutes = (0, express_1.Router)();
+exports.materialRoutes = materialRoutes;
+materialRoutes.post("/material", new CreateMaterialController_1.CreateMaterialController().handle);
+materialRoutes.get("/material/curso/:id_curso", new ListMaterialController_1.ListMaterialController().handle);
+materialRoutes.put("/material/:id", new UpdateMaterialController_1.UpdateMaterialController().handle);
+materialRoutes.delete("/material/:id", new DeleteMaterialController_1.DeleteMaterialController().handle);

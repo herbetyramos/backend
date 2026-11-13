@@ -1,5 +1,8 @@
+
 import { Router } from "express";
 import multer from "multer";
+
+import { IsAuthenticated } from "../../../middleware/IsAuthenticated";
 
 import { CreateConversaController } from "../controllers/CreateConversaController";
 import { ListConversasController } from "../controllers/ListConversasController";
@@ -9,6 +12,7 @@ import { ListAlunosCronogramaController } from "../controllers/ListAlunosCronogr
 import { AtualizarStatusConversaController } from "../controllers/AtualizarStatusConversaController";
 import { EditarMensagemController } from "../controllers/EditarMensagemController";
 import { ApagarMensagemController } from "../controllers/ApagarMensagemController";
+import { ProfessoresChatController } from "../controllers/ProfessoresChatController";
 
 const chatRoutes = Router();
 
@@ -43,6 +47,34 @@ const editarMensagemController =
 const apagarMensagemController =
   new ApagarMensagemController();
 
+const professoresChatController =
+  new ProfessoresChatController();
+
+// ============================================================
+// PROFESSORES DO BLOCO
+// ============================================================
+
+chatRoutes.get(
+  "/professores/cronograma/:id",
+  IsAuthenticated,
+  professoresChatController.listar.bind(
+    professoresChatController
+  )
+);
+
+chatRoutes.post(
+  "/professores/enviar",
+  IsAuthenticated,
+  upload.single("arquivo"),
+  professoresChatController.enviar.bind(
+    professoresChatController
+  )
+);
+
+// ============================================================
+// CONVERSAS
+// ============================================================
+
 chatRoutes.post(
   "/",
   createConversaController.handle
@@ -74,13 +106,15 @@ chatRoutes.post(
   enviarMensagemController.handle
 );
 
-// Editar mensagem
+// ============================================================
+// EDITAR E APAGAR MENSAGENS
+// ============================================================
+
 chatRoutes.patch(
   "/mensagem/:mensagemId",
   editarMensagemController.handle
 );
 
-// Apagar mensagem
 chatRoutes.delete(
   "/mensagem/:mensagemId",
   apagarMensagemController.handle

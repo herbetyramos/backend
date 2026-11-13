@@ -88,12 +88,12 @@ model Ata {
 }
 
 model Detentora {
-  id               String   @id @default(uuid())
+  id               String  @id @default(uuid())
   ata_id           String?
   cursos_id        String
   quantidade_turma Int?
-  valor_curso      Decimal  @default(0) @db.Decimal(10, 2)
-  ativo            Boolean  @default(true)
+  valor_curso      Decimal @default(0) @db.Decimal(10, 2)
+  ativo            Boolean @default(true)
 
   ata   Ata?   @relation(fields: [ata_id], references: [id])
   curso Cursos @relation(fields: [cursos_id], references: [id])
@@ -169,26 +169,26 @@ model BlocoCurso {
 }
 
 model CronogramaCurso {
-  id               String  @id @default(uuid())
-  codigo           Int     @unique @default(autoincrement())
-  bloco_id         String?
-  professor_id     String?
-  local_id         String
-  sala_id          String
-  formatura_id     String
-  data_inicio      String
-  data_fim         String
-  hora_inicio      String
-  hora_fim         String
-  tema             String
-  is_status        String
-  especificacao    String?
-  detentoras_id    String?
-  publicar         Boolean @default(false)
-  draft            Boolean @default(true)
-  quantidade_aluno String
-  link_inscricao   String?
-  imagem_url       String?
+  id                 String  @id @default(uuid())
+  codigo             Int     @unique @default(autoincrement())
+  bloco_id           String?
+  professor_id       String?
+  local_id           String
+  sala_id            String
+  formatura_id       String
+  data_inicio        String
+  data_fim           String
+  hora_inicio        String
+  hora_fim           String
+  tema               String
+  is_status          String
+  especificacao      String?
+  detentoras_id      String?
+  publicar           Boolean @default(false)
+  draft              Boolean @default(true)
+  quantidade_aluno   String
+  link_inscricao     String?
+  imagem_url         String?
   lista_presenca_url String?
 
   // RELAÇÕES
@@ -235,7 +235,9 @@ model aluno {
   Telefone_recado String?
   CPF             String  @unique
 
-  matriculas matricula[]
+  matriculas          matricula[]
+  perfilProfissional  PerfilProfissional?
+  acessoBancoTalentos AcessoAlunoTalentos?
 
   @@map("aluno")
 }
@@ -352,4 +354,94 @@ model Mensagem {
   created_at DateTime @default(now())
 
   @@index([conversaId])
+}
+
+// =====================================================
+// BANCO DE TALENTOS - ESTRUTURAS INDEPENDENTES
+// A tabela `empresa` existente permanece exclusiva para
+// fornecedoras vinculadas a atas e detentoras.
+// =====================================================
+
+enum StatusEmpresaParceira {
+  PENDENTE
+  APROVADA
+  REPROVADA
+  SUSPENSA
+}
+
+model EmpresaParceira {
+  id            String                @id @default(uuid())
+  razaoSocial   String
+  nomeFantasia  String?
+  cnpj          String                @unique
+  representante String
+  email         String
+  telefone      String
+  cidade        String?
+  descricao     String?
+  status        StatusEmpresaParceira @default(PENDENTE)
+  motivoStatus  String?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  usuarios UsuarioEmpresaParceira[]
+
+  @@index([status])
+  @@index([razaoSocial])
+  @@map("empresa_parceira")
+}
+
+model UsuarioEmpresaParceira {
+  id        String   @id @default(uuid())
+  empresaId String
+  nome      String
+  email     String   @unique
+  senhaHash String
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  empresa EmpresaParceira @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@index([empresaId])
+  @@map("usuario_empresa_parceira")
+}
+
+model PerfilProfissional {
+  id                      String    @id @default(uuid())
+  alunoId                 String    @unique
+  objetivoProfissional    String?
+  resumo                  String?
+  cidade                  String?
+  bairro                  String?
+  disponibilidade         String?
+  curriculoUrl            String?
+  telefoneContato         String?
+  ativo                   Boolean   @default(false)
+  consentimentoEm         DateTime?
+  consentimentoRevogadoEm DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  aluno aluno @relation(fields: [alunoId], references: [id], onDelete: Cascade)
+
+  @@map("perfil_profissional")
+}
+
+model AcessoAlunoTalentos {
+  id            String    @id @default(uuid())
+  alunoId       String    @unique
+  codigoHash    String?
+  codigoExpira  DateTime?
+  codigoUsadoEm DateTime?
+  senhaHash     String?
+  tentativas    Int       @default(0)
+  bloqueadoAte  DateTime?
+  ultimoAcesso  DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  aluno aluno @relation(fields: [alunoId], references: [id], onDelete: Cascade)
+
+  @@map("acesso_aluno_talentos")
 }
