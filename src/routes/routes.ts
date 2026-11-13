@@ -91,6 +91,7 @@ import { certificadoRoutes } from "../modules/certificado/routes";
 import { chatRoutes } from "../modules/chat/routes";
 
 import whatsappRoutes from "../whatsapp/routes";
+import { bancoTalentosRoutes } from "../modules/bancoTalentos/routes";
 
 
 const router = Router();
@@ -109,6 +110,8 @@ router.use("/certificado", certificadoRoutes);
 router.use("/chat", chatRoutes);
 
 router.use("/whatsapp", whatsappRoutes);
+
+router.use(bancoTalentosRoutes);
 
 router.use(alunoRoutes);
 
