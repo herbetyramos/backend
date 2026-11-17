@@ -18,8 +18,6 @@ export class SendCronogramaController {
     } catch (error) {
       console.error("Erro ao enviar email:", error);
       return res.status(500).json({ error: "Erro ao enviar email." });
-      console.log("USER:", process.env.EMAIL_USER);
-      console.log("PASS:", process.env.EMAIL_PASS);
     }
   }
 }

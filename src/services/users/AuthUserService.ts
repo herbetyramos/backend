@@ -25,6 +25,7 @@ class AuthUserService{
       }
 
     const token = sign({
+      tipo: "admin",
       name:user.name,
       email:user.email,
     },

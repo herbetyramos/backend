@@ -4,6 +4,9 @@ import { compare, hash } from "bcryptjs";
 import { sign, verify } from "jsonwebtoken";
 import prisma from "../../prisma";
 import { IsAuthenticated } from "../../middleware/IsAuthenticated";
+import { IsEmpresaAuthenticated } from "../../middleware/IsEmpresaAuthenticated";
+import { RelatorioInteracoesController } from "./RelatorioInteracoesController";
+
 
 const router = Router();
 const TOKEN_SECRET = process.env.JWS_SECRET as string;
@@ -105,6 +108,204 @@ router.post("/banco-talentos/admin/alunos/:alunoId/codigo-ativacao", IsAuthentic
   });
 
   return res.status(201).json({ aluno: aluno.nome, codigo, validadeHoras: CODIGO_HORAS_VALIDADE, mensagem: "Copie e entregue o código ao aluno. Ele será exibido somente nesta resposta." });
+});
+
+// Empresa empregadora: cadastro público com criação da própria senha.
+// A empresa e seu primeiro usuário são criados na mesma transação.
+router.post("/banco-talentos/empresas/cadastro", async (req: Request<Record<string, string>, unknown, Record<string, unknown>>, res: Response) => {
+  const razaoSocial = String(req.body.razaoSocial ?? "").trim();
+  const nomeFantasia = String(req.body.nomeFantasia ?? "").trim() || null;
+  const cnpj = somenteNumeros(String(req.body.cnpj ?? ""));
+  const representante = String(req.body.representante ?? "").trim();
+  const email = String(req.body.email ?? "").trim().toLowerCase();
+  const telefone = String(req.body.telefone ?? "").trim();
+  const cidade = String(req.body.cidade ?? "").trim() || null;
+  const descricao = String(req.body.descricao ?? "").trim() || null;
+  const senha = String(req.body.senha ?? "");
+
+  if (!razaoSocial || !representante || !telefone || !/^\d{14}$/.test(cnpj)) {
+    return res.status(400).json({ error: "Informe razão social, CNPJ com 14 dígitos, representante e telefone." });
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: "Informe um e-mail válido." });
+  }
+
+  if (senha.length < 8 || Buffer.byteLength(senha, "utf8") > 72) {
+    return res.status(400).json({ error: "A senha deve ter pelo menos 8 caracteres e no máximo 72 bytes." });
+  }
+
+  const [empresaCnpj, empresaEmail, usuarioEmail] = await Promise.all([
+    prisma.empresaParceira.findUnique({ where: { cnpj }, select: { id: true } }),
+    prisma.empresaParceira.findFirst({ where: { email }, select: { id: true } }),
+    prisma.usuarioEmpresaParceira.findUnique({ where: { email }, select: { id: true } }),
+  ]);
+
+  if (empresaCnpj) {
+    return res.status(409).json({ error: "Já existe uma empresa empregadora cadastrada com este CNPJ." });
+  }
+
+  if (empresaEmail || usuarioEmail) {
+    return res.status(409).json({ error: "Este e-mail já está cadastrado para uma empresa empregadora." });
+  }
+
+  const senhaHash = await hash(senha, 12);
+
+  try {
+    const resultado = await prisma.$transaction(async (tx) => {
+      const empresa = await tx.empresaParceira.create({
+        data: {
+          razaoSocial,
+          nomeFantasia,
+          cnpj,
+          representante,
+          email,
+          telefone,
+          cidade,
+          descricao,
+          status: "PENDENTE",
+        },
+      });
+
+      const usuario = await tx.usuarioEmpresaParceira.create({
+        data: {
+          empresaId: empresa.id,
+          nome: representante,
+          email,
+          senhaHash,
+        },
+        select: {
+          id: true,
+          nome: true,
+          email: true,
+          empresaId: true,
+        },
+      });
+
+      return { empresa, usuario };
+    });
+
+    return res.status(201).json({
+      mensagem: "Cadastro realizado. A empresa deverá aguardar a aprovação da Secretaria para acessar o Banco de Talentos.",
+      empresa: {
+        id: resultado.empresa.id,
+        razaoSocial: resultado.empresa.razaoSocial,
+        nomeFantasia: resultado.empresa.nomeFantasia,
+        cnpj: resultado.empresa.cnpj,
+        status: resultado.empresa.status,
+      },
+      usuario: {
+        id: resultado.usuario.id,
+        nome: resultado.usuario.nome,
+        email: resultado.usuario.email,
+      },
+    });
+  } catch (error) {
+    // Protege contra cadastros simultâneos que disputem CNPJ ou e-mail únicos.
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "P2002"
+    ) {
+      return res.status(409).json({ error: "CNPJ ou e-mail já cadastrado." });
+    }
+    throw error;
+  }
+});
+
+// Empresa empregadora: login independente do usuário administrativo e do aluno.
+router.post("/banco-talentos/empresas/login", async (req: Request<Record<string, string>, unknown, Record<string, unknown>>, res: Response) => {
+  const email = String(req.body.email ?? "").trim().toLowerCase();
+  const senha = String(req.body.senha ?? "");
+
+  if (!email || !senha) {
+    return res.status(400).json({ error: "Informe e-mail e senha." });
+  }
+
+  const usuario = await prisma.usuarioEmpresaParceira.findUnique({
+    where: { email },
+    include: {
+      empresa: {
+        select: {
+          id: true,
+          razaoSocial: true,
+          nomeFantasia: true,
+          status: true,
+        },
+      },
+    },
+  });
+
+  if (!usuario || !(await compare(senha, usuario.senhaHash))) {
+    return res.status(401).json({ error: "E-mail ou senha inválidos." });
+  }
+
+  if (!usuario.ativo) {
+    return res.status(403).json({ error: "Acesso empresarial desativado. Entre em contato com a Secretaria." });
+  }
+
+  if (usuario.empresa.status !== "APROVADA") {
+    if (usuario.empresa.status === "PENDENTE") {
+      return res.status(403).json({ error: "Cadastro aguardando aprovação da Secretaria." });
+    }
+    return res.status(403).json({ error: "Acesso empresarial não autorizado. Entre em contato com a Secretaria." });
+  }
+
+  const token = sign(
+    {
+      tipo: "empresa",
+      empresaId: usuario.empresaId,
+      nome: usuario.nome,
+    },
+    TOKEN_SECRET,
+    {
+      subject: usuario.id,
+      expiresIn: "12h",
+    }
+  );
+
+  return res.json({
+    token,
+    usuario: {
+      id: usuario.id,
+      nome: usuario.nome,
+      email: usuario.email,
+    },
+    empresa: usuario.empresa,
+  });
+});
+
+// Dados da sessão empresarial autenticada.
+router.get("/banco-talentos/empresas/me", IsEmpresaAuthenticated, async (req: Request, res: Response) => {
+  const usuario = await prisma.usuarioEmpresaParceira.findUnique({
+    where: { id: req.empresa_usuario_id },
+    select: {
+      id: true,
+      nome: true,
+      email: true,
+      empresa: {
+        select: {
+          id: true,
+          razaoSocial: true,
+          nomeFantasia: true,
+          cnpj: true,
+          representante: true,
+          email: true,
+          telefone: true,
+          cidade: true,
+          descricao: true,
+          status: true,
+        },
+      },
+    },
+  });
+
+  if (!usuario) {
+    return res.status(401).json({ error: "Sessão empresarial inválida." });
+  }
+
+  return res.json(usuario);
 });
 
 // Secretaria: cadastro de empresa empregadora (não utiliza a tabela empresa).
@@ -300,5 +501,11 @@ router.put("/banco-talentos/aluno/perfil", IsAlunoAuthenticated, async (req: Req
   });
   return res.json(perfil);
 });
+
+router.get(
+  "/banco-talentos/admin/relatorio-interacoes",
+  IsAuthenticated,
+  new RelatorioInteracoesController().handle
+);
 
 export { router as bancoTalentosRoutes };

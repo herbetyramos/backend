@@ -238,6 +238,7 @@ model aluno {
   matriculas          matricula[]
   perfilProfissional  PerfilProfissional?
   acessoBancoTalentos AcessoAlunoTalentos?
+  candidaturas        Candidatura[]
 
   @@map("aluno")
 }
@@ -384,7 +385,8 @@ model EmpresaParceira {
   createdAt     DateTime              @default(now())
   updatedAt     DateTime              @updatedAt
 
-  usuarios UsuarioEmpresaParceira[]
+  usuarios      UsuarioEmpresaParceira[]
+  oportunidades Oportunidade[]
 
   @@index([status])
   @@index([razaoSocial])
@@ -444,4 +446,68 @@ model AcessoAlunoTalentos {
   aluno aluno @relation(fields: [alunoId], references: [id], onDelete: Cascade)
 
   @@map("acesso_aluno_talentos")
+}
+
+// =====================================================
+// BANCO DE TALENTOS - OPORTUNIDADES E CANDIDATURAS
+// =====================================================
+
+enum StatusOportunidade {
+  RASCUNHO
+  PUBLICADA
+  ENCERRADA
+}
+
+enum StatusCandidatura {
+  EM_ANALISE
+  CONTATADO
+  SELECIONADO
+  RECUSADO
+}
+
+model Oportunidade {
+  id               String             @id @default(uuid())
+  empresaId        String
+  titulo           String
+  descricao        String
+  requisitos       String?
+  atividades       String?
+  cidade           String?
+  modalidade       String?
+  tipoContratacao  String?
+  jornada          String?
+  salario          Decimal?           @db.Decimal(10, 2)
+  beneficios       String?
+  prazoCandidatura DateTime?
+  status           StatusOportunidade @default(RASCUNHO)
+
+  empresa      EmpresaParceira @relation(fields: [empresaId], references: [id])
+  candidaturas Candidatura[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([empresaId])
+  @@index([status])
+  @@index([prazoCandidatura])
+  @@map("oportunidade")
+}
+
+model Candidatura {
+  id             String            @id @default(uuid())
+  oportunidadeId String
+  alunoId        String
+  status         StatusCandidatura @default(EM_ANALISE)
+
+  oportunidade Oportunidade @relation(fields: [oportunidadeId], references: [id])
+  aluno        aluno        @relation(fields: [alunoId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([oportunidadeId, alunoId])
+  @@index([alunoId])
+  @@index([oportunidadeId])
+  @@index([status])
+  @@map("candidatura")
 }

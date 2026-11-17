@@ -20,10 +20,22 @@ export function IsAuthenticated(
   }
 
   try {
-    const payload = verify(token, process.env.JWS_SECRET as string) as Payload;
-    if (payload.tipo === "aluno") {
+    const payload = verify(
+      token,
+      process.env.JWS_SECRET as string
+    ) as Payload;
+
+    if (!payload.sub) {
+      return res.status(401).json({ error: "Token inválido." });
+    }
+
+    // Compatibilidade: tokens administrativos antigos não possuem "tipo".
+    // Novos tokens administrativos usam tipo="admin".
+    // Tokens de aluno e empresa nunca podem acessar rotas administrativas.
+    if (payload.tipo !== undefined && payload.tipo !== "admin") {
       return res.status(403).json({ error: "Acesso administrativo não permitido." });
     }
+
     req.user_id = payload.sub;
     return next();
   } catch {
